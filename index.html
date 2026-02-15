@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Broken Frontier RPG</title>
+
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0b0b0f">
+
+  <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgo=">
+  <style>
+    /* fallback if css fails */
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#0b0b0f; color:#e8e8ee; }
+  </style>
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="sigil">BF</div>
+      <div>
+        <div class="title">Broken Frontier RPG</div>
+        <div class="sub">Core Engine v1.0 — PWA Prototype</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn ghost" id="btnExport">Export Save</button>
+      <label class="btn ghost file">
+        Import Save
+        <input type="file" id="fileImport" accept="application/json" />
+      </label>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="tabs">
+      <button class="tab active" data-tab="saves">Saves</button>
+      <button class="tab" data-tab="sheet">Character</button>
+      <button class="tab" data-tab="roll">Roll</button>
+      <button class="tab" data-tab="log">Log</button>
+      <button class="tab" data-tab="settings">Settings</button>
+    </nav>
+
+    <!-- SAVES -->
+    <section class="panel" id="tab-saves">
+      <div class="row split">
+        <div>
+          <h2>Continue / New Game</h2>
+          <p class="muted">Pick a save slot or forge a new one.</p>
+        </div>
+        <div class="row">
+          <button class="btn" id="btnNewSave">New Save</button>
+        </div>
+      </div>
+
+      <div class="grid" id="saveList"></div>
+    </section>
+
+    <!-- CHARACTER -->
+    <section class="panel hidden" id="tab-sheet">
+      <div class="row split">
+        <div>
+          <h2>Character Sheet</h2>
+          <p class="muted">Human-scale. Fragile. Cinematic pressure.</p>
+        </div>
+        <div class="row">
+          <button class="btn ghost" id="btnHealShort">Take Cover (HP)</button>
+          <button class="btn ghost" id="btnFirstAid">First Aid</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row split">
+          <div class="col">
+            <label>Name</label>
+            <input id="chName" type="text" placeholder="Eli Brogan" />
+          </div>
+          <div class="col">
+            <label>Background</label>
+            <input id="chBg" type="text" placeholder="Park Ranger" />
+          </div>
+        </div>
+
+        <div class="row stats">
+          <div class="stat"><div class="k">Grit</div><input id="stGrit" type="number" step="1" /></div>
+          <div class="stat"><div class="k">Instinct</div><input id="stInstinct" type="number" step="1" /></div>
+          <div class="stat"><div class="k">Will</div><input id="stWill" type="number" step="1" /></div>
+          <div class="stat"><div class="k">Presence</div><input id="stPresence" type="number" step="1" /></div>
+          <div class="stat"><div class="k">Discipline</div><input id="stDiscipline" type="number" step="1" /></div>
+        </div>
+
+        <div class="row split meter-row">
+          <div class="meter">
+            <div class="k">HP</div>
+            <div class="row">
+              <button class="btn tiny" id="hpMinus">-</button>
+              <div class="big" id="hpNow">--</div>
+              <button class="btn tiny" id="hpPlus">+</button>
+            </div>
+            <div class="muted small">Max: <span id="hpMax">--</span> · Wound Threshold: <span id="wThresh">--</span></div>
+          </div>
+
+          <div class="meter">
+            <div class="k">Wounds</div>
+            <div class="row">
+              <button class="btn tiny" id="wdMinus">-</button>
+              <div class="big" id="wdNow">--</div>
+              <button class="btn tiny" id="wdPlus">+</button>
+            </div>
+            <div class="muted small">3 = Critical · 4 = Death Check</div>
+          </div>
+
+          <div class="meter">
+            <div class="k">Stress</div>
+            <div class="row">
+              <button class="btn tiny" id="stMinus">-</button>
+              <div class="big" id="stressNow">--</div>
+              <button class="btn tiny" id="stPlus">+</button>
+            </div>
+            <div class="muted small">Penalty: <span id="stressPenalty">0</span></div>
+          </div>
+
+          <div class="meter">
+            <div class="k">Exposed</div>
+            <div class="row">
+              <button class="btn tiny" id="expToggle">Toggle</button>
+              <div class="big" id="expNow">--</div>
+            </div>
+            <div class="muted small">Bad miss / catastrophic sets this.</div>
+          </div>
+        </div>
+
+        <div class="row split meter-row">
+          <div class="meter">
+            <div class="k">Ammo</div>
+            <div class="row">
+              <button class="btn tiny" id="amMinus">-</button>
+              <div class="big" id="ammoNow">--</div>
+              <button class="btn tiny" id="amPlus">+</button>
+            </div>
+          </div>
+
+          <div class="meter wide">
+            <div class="k">Inventory / Notes</div>
+            <textarea id="invNotes" rows="4" placeholder="Loadout, supplies, relics, notes..."></textarea>
+          </div>
+        </div>
+
+        <div class="row split">
+          <div class="muted small">Autosaves on every change.</div>
+          <button class="btn danger" id="btnDownCheck">0 HP Check</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ROLL -->
+    <section class="panel hidden" id="tab-roll">
+      <div class="row split">
+        <div>
+          <h2>Roll Resolver</h2>
+          <p class="muted">Tap to roll d20. Engine resolves tier, margin, and effects.</p>
+        </div>
+        <div class="row">
+          <button class="btn" id="btnRoll">Roll d20</button>
+          <button class="btn ghost" id="btnClearRoll">Clear</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row split">
+          <div class="col">
+            <label>Roll Type</label>
+            <select id="rollType">
+              <option value="Check">Check</option>
+              <option value="Attack">Attack</option>
+              <option value="Horror">Horror</option>
+              <option value="Defense">Defense</option>
+              <option value="FirstAid">First Aid</option>
+              <option value="Morale">Enemy Morale</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>Stat Used</label>
+            <select id="statUsed">
+              <option value="None">None</option>
+              <option value="Grit">Grit</option>
+              <option value="Instinct">Instinct</option>
+              <option value="Will">Will</option>
+              <option value="Presence">Presence</option>
+              <option value="Discipline">Discipline</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>Target Number (TN)</label>
+            <input id="tn" type="number" value="12" />
+          </div>
+        </div>
+
+        <div class="row split">
+          <div class="col">
+            <label>Natural Roll</label>
+            <input id="natRoll" type="number" placeholder="Tap Roll d20" />
+          </div>
+          <div class="col">
+            <label>Modifier</label>
+            <input id="mod" type="number" value="0" />
+            <div class="muted small">Auto-fills from Stat + Stress + Wounds.</div>
+          </div>
+          <div class="col">
+            <label>Total</label>
+            <div class="big" id="total">--</div>
+          </div>
+        </div>
+
+        <div class="row split">
+          <div class="col">
+            <label>Margin</label>
+            <div class="big" id="margin">--</div>
+          </div>
+          <div class="col">
+            <label>Outcome</label>
+            <div class="big" id="outcome">--</div>
+          </div>
+          <div class="col">
+            <label>Effects</label>
+            <div class="muted" id="effects">—</div>
+          </div>
+        </div>
+
+        <div class="row split">
+          <div class="col">
+            <label>GM Note</label>
+            <input id="gmNote" type="text" placeholder="Optional: what happened" />
+          </div>
+          <div class="row">
+            <button class="btn" id="btnLogRoll">Log Roll</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LOG -->
+    <section class="panel hidden" id="tab-log">
+      <div class="row split">
+        <div>
+          <h2>Session Log</h2>
+          <p class="muted">Rolls and key state changes. Your paper trail.</p>
+        </div>
+        <div class="row">
+          <button class="btn ghost" id="btnClearLog">Clear Log</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="logList" class="log"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="panel hidden" id="tab-settings">
+      <div class="row split">
+        <div>
+          <h2>Settings</h2>
+          <p class="muted">Toggles and engine dials (kept minimal).</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row split">
+          <div class="col">
+            <label>Combat Tier Scaling</label>
+            <select id="setCombatScale">
+              <option value="on" selected>On (Normal/Strong/Critical)</option>
+              <option value="off">Off (Binary hit/miss)</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>Enemy Model</label>
+            <select id="setEnemyModel">
+              <option value="integrity" selected>Integrity (Threat Tiers)</option>
+              <option value="hp">HP (Not recommended)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row split">
+          <div class="col">
+            <label>Notes</label>
+            <textarea id="appNotes" rows="4" placeholder="Future: AI GM integration, Crosstalk sync, campaign modules..."></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <div class="muted small">Install: browser menu → “Add to Home screen”. Offline ready.</div>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
