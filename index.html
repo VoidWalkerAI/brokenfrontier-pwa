@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Broken Frontier RPG</title>
+
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0b0b0f">
+
+  <!-- Icons (no blank data URL; that breaks icons on mobile) -->
+  <link rel="icon" type="image/png" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+
+  <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <script src="./save.js"></script>
+  <script src="./gm.schema.js"></script>
+
+  <!-- Set your GM endpoint after you deploy the Worker -->
+  <script>
+  window.BF_GM_ENDPOINT = "https://YOUR-WORKER-URL.workers.dev/api/turn";
+</script>
+
+<script src="./app.js"></script>
+</body>
+</html>
