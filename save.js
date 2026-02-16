@@ -59,4 +59,112 @@ function defaultCampaign() {
 
 function defaultCharacter() {
   return {
-    name: "
+    name: "Eli Brogan",
+    background: "Park Ranger",
+    grit: 1,
+    instinct: 2,
+    will: 1,
+    presence: 0,
+    discipline: 0,
+
+    hp: 13,
+    maxHp: 13,
+    wounds: 0,
+    stress: 0,
+
+    exposed: false,
+    ammo: 6,
+    notes: "Revolver. Flashlight. Field dressing."
+  };
+}
+
+function defaultSaveSlot() {
+  return {
+    id: "save_" + Math.random().toString(16).slice(2),
+    title: "Save 1",
+    updatedAt: nowISO(),
+
+    character: defaultCharacter(),
+    worldFlags: defaultWorldFlags(),
+    campaign: defaultCampaign(),
+
+    sessionLog: []
+  };
+}
+
+function loadDB() {
+  const raw = localStorage.getItem(BF_SAVE_DB_KEY);
+  if (!raw) return { saves: [] };
+  try {
+    const db = JSON.parse(raw);
+    db.saves = Array.isArray(db.saves) ? db.saves : [];
+    return db;
+  } catch {
+    return { saves: [] };
+  }
+}
+
+function writeDB(db) {
+  localStorage.setItem(BF_SAVE_DB_KEY, JSON.stringify(db));
+}
+
+function getActiveSaveId() {
+  return localStorage.getItem(BF_ACTIVE_ID_KEY);
+}
+
+function setActiveSaveId(id) {
+  localStorage.setItem(BF_ACTIVE_ID_KEY, id);
+}
+
+function patchSave(save) {
+  // Ensure all new fields exist on older saves
+  save.character = save.character || defaultCharacter();
+  save.worldFlags = save.worldFlags || defaultWorldFlags();
+  save.campaign = save.campaign || defaultCampaign();
+  save.sessionLog = Array.isArray(save.sessionLog) ? save.sessionLog : [];
+
+  // Deep patch campaign subfields (in case only part exists)
+  save.campaign.location = save.campaign.location || defaultCampaign().location;
+  save.campaign.lastTurn = save.campaign.lastTurn || defaultCampaign().lastTurn;
+  save.campaign.flags = save.campaign.flags || defaultCampaign().flags;
+  save.campaign.clues = Array.isArray(save.campaign.clues) ? save.campaign.clues : [];
+  save.campaign.clocks = save.campaign.clocks || defaultCampaign().clocks;
+  save.campaign.entities = save.campaign.entities || defaultCampaign().entities;
+
+  return save;
+}
+
+function getActiveSave() {
+  const db = loadDB();
+  const id = getActiveSaveId();
+  let save = db.saves.find(s => s.id === id) || null;
+
+  if (!save) {
+    save = defaultSaveSlot();
+    db.saves = [save];
+    writeDB(db);
+    setActiveSaveId(save.id);
+  }
+
+  save = patchSave(save);
+  return save;
+}
+
+function commitActiveSave(save) {
+  const db = loadDB();
+  const idx = db.saves.findIndex(s => s.id === save.id);
+
+  save.updatedAt = nowISO();
+  save = patchSave(save);
+
+  if (idx >= 0) db.saves[idx] = save;
+  else db.saves.push(save);
+
+  writeDB(db);
+  setActiveSaveId(save.id);
+}
+
+function hardResetAllSaves() {
+  localStorage.removeItem(BF_SAVE_DB_KEY);
+  localStorage.removeItem(BF_ACTIVE_ID_KEY);
+}
