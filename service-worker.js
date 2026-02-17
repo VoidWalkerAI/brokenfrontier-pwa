@@ -1,6 +1,6 @@
 /* Broken Frontier PWA Service Worker (offline-safe, GitHub Pages friendly) */
 
-const CACHE_NAME = "bf-rpg-cache-v7";
+const CACHE_NAME = "bf-rpg-cache-v8";
 const CORE = ["./", "./index.html", "./style.css", "./app.js", "./manifest.json", "./service-worker.js"];
 
 self.addEventListener("install", (event) => {
