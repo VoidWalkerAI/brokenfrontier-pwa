@@ -1,7 +1,8 @@
-/* Broken Frontier RPG — AI-GM Terminal v2.0
-   - Frontend only (GitHub Pages)
-   - Calls your backend proxy: /api/turn
-   - Saves everything to localStorage via save.js
+/* app.js — Broken Frontier RPG (AI-GM Terminal + Saves)
+   - Frontend (GitHub Pages)
+   - Uses save.js (multi-save DB)
+   - Uses gm.schema.js (optional patch rules)
+   - Calls Cloudflare Worker endpoint: window.BF_GM_ENDPOINT (/api/turn)
 */
 
 (function () {
@@ -15,8 +16,7 @@
   const $app = document.getElementById("app");
   if (!$app) return;
 
-  // === CONFIG: set this to your Worker URL once you deploy it ===
-  // Example: https://bf-gm-proxy.yourname.workers.dev/api/turn
+  // Must be set in index.html
   const GM_ENDPOINT = window.BF_GM_ENDPOINT || "";
 
   // ---- Helpers ----
@@ -25,14 +25,13 @@
   }[c]));
 
   function nowISO() { return new Date().toISOString(); }
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
   function pushLocalLog(save, type, text, data) {
     save.sessionLog = Array.isArray(save.sessionLog) ? save.sessionLog : [];
     save.sessionLog.unshift({ at: nowISO(), type, text, data: data || null });
     commitActiveSave(save);
   }
-
-  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
   function computeStat(save, statName) {
     const c = save.character || {};
@@ -43,21 +42,10 @@
   function rollD20() { return Math.floor(Math.random() * 20) + 1; }
   function roll2d6() { return (Math.floor(Math.random() * 6) + 1) + (Math.floor(Math.random() * 6) + 1); }
 
-  // ---- Load save ----
-  let save = getActiveSave();
-
-  // Seed campaign if empty
-  save.campaign = save.campaign || {};
-  save.campaign.campaignId = save.campaign.campaignId || "oregon_brogan_v1";
-  save.campaign.turn = Number(save.campaign.turn || 0);
-  save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
-  commitActiveSave(save);
-
   // ---- UI State ----
   const ui = {
     tab: "play",
-    pendingRoll: null,  // { dice, kind, tn, stat, mod, prompt }
-    lastGMText: []
+    pendingRoll: null
   };
 
   function tabBtn(id, label) {
@@ -66,14 +54,14 @@
   }
 
   function render() {
-    save = getActiveSave();
-
+    const save = getActiveSave();
     const c = save.character || {};
     const hp = Number(c.hp || 0);
     const maxHp = Number(c.maxHp || 0);
     const wounds = Number(c.wounds || 0);
     const stress = Number(c.stress || 0);
     const exposed = !!c.exposed;
+
     const campaignId = (save.campaign && save.campaign.campaignId) || "—";
     const turn = Number((save.campaign && save.campaign.turn) || 0);
 
@@ -96,15 +84,17 @@
 
         <nav class="bf-tabs">
           ${tabBtn("play","Play")}
+          ${tabBtn("saves","Saves")}
           ${tabBtn("character","Character")}
           ${tabBtn("log","Log")}
           ${tabBtn("settings","Settings")}
         </nav>
 
         <main class="bf-main">
-          ${ui.tab === "play" ? playView() : ""}
-          ${ui.tab === "character" ? characterView() : ""}
-          ${ui.tab === "log" ? logView() : ""}
+          ${ui.tab === "play" ? playView(save) : ""}
+          ${ui.tab === "saves" ? savesView() : ""}
+          ${ui.tab === "character" ? characterView(save) : ""}
+          ${ui.tab === "log" ? logView(save) : ""}
           ${ui.tab === "settings" ? settingsView() : ""}
         </main>
 
@@ -117,7 +107,7 @@
       </div>
     `;
 
-    // nav
+    // tabs
     document.querySelectorAll("[data-tab]").forEach(btn => {
       btn.onclick = () => { ui.tab = btn.getAttribute("data-tab"); render(); };
     });
@@ -126,14 +116,16 @@
     document.getElementById("exportBtn").onclick = exportActiveSave;
     document.getElementById("importBtn").onclick = importSavePrompt;
 
-    // bind views
+    // bind per-tab
     if (ui.tab === "play") bindPlay();
+    if (ui.tab === "saves") bindSaves();
     if (ui.tab === "character") bindCharacter();
     if (ui.tab === "log") bindLog();
     if (ui.tab === "settings") bindSettings();
   }
 
-  function playView() {
+  // ---- Views ----
+  function playView(save) {
     const transcript = (save.campaign && save.campaign.transcript) || [];
     const last = transcript.slice(-18);
 
@@ -149,30 +141,20 @@
           <div class="bf-dim">${esc(ui.pendingRoll.prompt || "")}</div>
         </div>
         <div class="bf-row">
-          <div class="bf-stat">
-            <div class="bf-stat-label">Dice</div>
-            <div class="bf-stat-val">${esc(ui.pendingRoll.dice)}</div>
-          </div>
-          <div class="bf-stat">
-            <div class="bf-stat-label">TN</div>
-            <div class="bf-stat-val">${Number(ui.pendingRoll.tn || 0)}</div>
-          </div>
-          <div class="bf-stat">
-            <div class="bf-stat-label">Stat</div>
-            <div class="bf-stat-val">${esc(ui.pendingRoll.stat || "none")}</div>
-          </div>
-          <div class="bf-stat">
-            <div class="bf-stat-label">Mod</div>
-            <div class="bf-stat-val">${Number(ui.pendingRoll.mod || 0)}</div>
-          </div>
+          <div class="bf-stat"><div class="bf-stat-label">Dice</div><div class="bf-stat-val">${esc(ui.pendingRoll.dice)}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">TN</div><div class="bf-stat-val">${Number(ui.pendingRoll.tn || 0)}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Stat</div><div class="bf-stat-val">${esc(ui.pendingRoll.stat || "none")}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Mod</div><div class="bf-stat-val">${Number(ui.pendingRoll.mod || 0)}</div></div>
         </div>
+
+        <div class="bf-dim" style="margin-top:8px;">You can roll physical dice. Tap Roll Now, then type your natural result.</div>
+        <div class="bf-mini" style="margin-top:10px;">
+          <input class="bf-input" id="rollNat" placeholder="Enter natural roll (optional)" inputmode="numeric"/>
+        </div>
+
         <div class="bf-mini" style="margin-top:10px;">
           <button class="bf-btn" id="btnRollNow">Roll Now</button>
           <button class="bf-btn ghost" id="btnCancelRoll">Cancel</button>
-        </div>
-        <div class="bf-dim" style="margin-top:8px;">You can also roll physical dice. Tap Roll Now, then type your natural result.</div>
-        <div class="bf-mini" style="margin-top:10px;">
-          <input class="bf-input" id="rollNat" placeholder="Enter your natural roll (optional)" inputmode="numeric"/>
         </div>
       </section>
     ` : "";
@@ -203,7 +185,42 @@
     `;
   }
 
-  function characterView() {
+  function savesView() {
+    const db = loadDB();
+    const activeId = getActiveSaveId();
+
+    const cards = (db.saves || []).map(s => `
+      <div class="bf-save">
+        <div class="bf-save-top">
+          <div>
+            <div class="bf-save-title">${esc(s.title || "Save")}</div>
+            <div class="bf-dim">${esc(s.updatedAt || "")}</div>
+            <div class="bf-dim">${esc((s.character && s.character.name) || "")} — HP ${(s.character && s.character.hp) || 0}/${(s.character && s.character.maxHp) || 0}</div>
+          </div>
+          <div class="bf-pill ${s.id === activeId ? "on" : ""}">${s.id === activeId ? "ACTIVE" : ""}</div>
+        </div>
+
+        <div class="bf-save-actions">
+          <button class="bf-btn" data-load="${esc(s.id)}">Load</button>
+          <button class="bf-btn danger" data-del="${esc(s.id)}">Delete</button>
+        </div>
+      </div>
+    `).join("");
+
+    return `
+      <section class="bf-card">
+        <div class="bf-card-head">
+          <div class="bf-card-title">Continue / New Game</div>
+          <button class="bf-btn" id="btnNewSave">New Save</button>
+        </div>
+        <div class="bf-stack">
+          ${cards || `<div class="bf-dim">No saves yet.</div>`}
+        </div>
+      </section>
+    `;
+  }
+
+  function characterView(save) {
     const c = save.character || {};
     return `
       <section class="bf-card">
@@ -225,7 +242,7 @@
     `;
   }
 
-  function logView() {
+  function logView(save) {
     const items = (save.sessionLog || []).slice(0, 60).map(e => `
       <div class="bf-log">
         <div class="bf-log-top">
@@ -256,9 +273,10 @@
           <div class="bf-card-title">Settings</div>
           <button class="bf-btn danger" id="btnHardReset">Hard Reset All</button>
         </div>
+
         <div class="bf-dim" style="margin-top:8px;">
           GM Endpoint: <b>${esc(endpointSet)}</b><br/>
-          (Set window.BF_GM_ENDPOINT in index.html after you deploy your Worker.)
+          (Set window.BF_GM_ENDPOINT in index.html. Must include /api/turn)
         </div>
       </section>
     `;
@@ -284,6 +302,7 @@
 
   // ---- Bindings ----
   function bindPlay() {
+    const save = getActiveSave();
     const send = document.getElementById("btnSend");
     const nudge = document.getElementById("btnNudge");
     const input = document.getElementById("playerInput");
@@ -292,12 +311,11 @@
       const text = (input.value || "").trim();
       if (!text) return;
       input.value = "";
-
       await gmTurn({ type: "player_action", text });
     };
 
     if (nudge) nudge.onclick = async () => {
-      await gmTurn({ type: "nudge", text: "Push the tension. Present danger. Force a meaningful decision." });
+      await gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
     };
 
     const rollNow = document.getElementById("btnRollNow");
@@ -307,7 +325,6 @@
     if (rollNow) rollNow.onclick = async () => {
       if (!ui.pendingRoll) return;
 
-      // If they typed a natural, use it. Otherwise auto-roll.
       const typed = Number((rollNat && rollNat.value || "").trim());
       const dice = ui.pendingRoll.dice || "d20";
       const nat =
@@ -315,22 +332,20 @@
           ? typed
           : (dice === "2d6" ? roll2d6() : rollD20());
 
-      const stat = computeStat(save, ui.pendingRoll.stat);
+      const live = getActiveSave();
+      const stat = computeStat(live, ui.pendingRoll.stat);
       const mod = Number(ui.pendingRoll.mod || 0);
 
-      // Simple penalty: wounds + stress/3 (same spirit as your old resolver)
-      const wounds = Number(save.character.wounds || 0);
-      const stress = Number(save.character.stress || 0);
+      const wounds = Number(live.character.wounds || 0);
+      const stress = Number(live.character.stress || 0);
       const penalty = wounds + Math.floor(stress / 3);
 
       const total = nat + stat + mod - penalty;
 
-      // Clear pending roll locally before sending resolution
       const rollPacket = {
-        nat, total,
-        dice,
+        nat, total, dice,
         kind: ui.pendingRoll.kind || "Check",
-        tn: Number(ui.pendingRoll.tn || 0),
+        tn: Number(ui.pendingRoll.tn || 12),
         statName: ui.pendingRoll.stat || "none",
         mod, stat, penalty
       };
@@ -338,7 +353,7 @@
       ui.pendingRoll = null;
       if (rollNat) rollNat.value = "";
 
-      pushLocalLog(save, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
+      pushLocalLog(live, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
 
       await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
     };
@@ -349,7 +364,48 @@
     };
   }
 
+  function bindSaves() {
+    const btnNew = document.getElementById("btnNewSave");
+    if (btnNew) btnNew.onclick = () => {
+      const db = loadDB();
+      const s = defaultSaveSlot();
+      s.title = `Save ${((db.saves || []).length) + 1}`;
+      db.saves = Array.isArray(db.saves) ? db.saves : [];
+      db.saves.push(s);
+      writeDB(db);
+      setActiveSaveId(s.id);
+      pushLocalLog(s, "SAVE", "Created new save");
+      ui.tab = "play";
+      render();
+    };
+
+    document.querySelectorAll("[data-load]").forEach(b => {
+      b.onclick = () => {
+        const id = b.getAttribute("data-load");
+        setActiveSaveId(id);
+        const s = getActiveSave();
+        pushLocalLog(s, "SAVE", `Loaded ${id}`);
+        ui.tab = "play";
+        render();
+      };
+    });
+
+    document.querySelectorAll("[data-del]").forEach(b => {
+      b.onclick = () => {
+        const id = b.getAttribute("data-del");
+        const db = loadDB();
+        db.saves = (db.saves || []).filter(s => s.id !== id);
+        writeDB(db);
+        if (getActiveSaveId() === id) {
+          localStorage.removeItem("bf_active_save_id_v1");
+        }
+        render();
+      };
+    });
+  }
+
   function bindCharacter() {
+    const save = getActiveSave();
     const c = save.character || (save.character = {});
     const bindInput = (id, fn) => {
       const el = document.getElementById(id);
@@ -371,6 +427,7 @@
   }
 
   function bindLog() {
+    const save = getActiveSave();
     const btn = document.getElementById("btnClearLog");
     if (btn) btn.onclick = () => {
       save.sessionLog = [];
@@ -389,8 +446,8 @@
 
   // ---- GM Turn (calls backend) ----
   async function gmTurn(event) {
-    // Add player event to transcript (so the AI sees it)
-    save = getActiveSave();
+    let save = getActiveSave();
+
     save.campaign = save.campaign || {};
     save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
     save.campaign.turn = Number(save.campaign.turn || 0);
@@ -408,7 +465,6 @@
       return;
     }
 
-    // Send only the last N transcript lines (keeps it cheap + focused)
     const transcript = (save.campaign.transcript || []).slice(-24);
 
     const payload = {
@@ -425,46 +481,38 @@
       event
     };
 
-    let res, raw;
-try {
-  res = await fetch(GM_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-  raw = await res.text();
-} catch (e) {
-  pushLocalLog(save, "ERROR", "GM network/CORS failure", { detail: String(e) });
-  render();
-  return;
-}
+    let data;
+    try {
+      const res = await fetch(GM_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-let data;
-try {
-  data = JSON.parse(raw);
-} catch (e) {
-  pushLocalLog(save, "ERROR", `GM returned non-JSON (HTTP ${res.status})`, { preview: String(raw).slice(0, 300) });
-  render();
-  return;
-}
+      // If Worker returns non-JSON, this prevents silent death
+      const txt = await res.text();
+      try { data = JSON.parse(txt); }
+      catch {
+        pushLocalLog(save, "ERROR", `GM returned non-JSON: ${txt.slice(0, 120)}`);
+        render();
+        return;
+      }
+    } catch (e) {
+      pushLocalLog(save, "ERROR", "GM call failed.");
+      render();
+      return;
+    }
 
-if (!res.ok) {
-  pushLocalLog(save, "ERROR", `GM error (HTTP ${res.status})`, data);
-  render();
-  return;
-}
-
-    // data is expected to be the strict schema object
     const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
     const patch = data.patch || null;
     const roll = data.roll || null;
 
-    // Write GM speech into transcript
+    // Append GM speech
     save = getActiveSave();
     save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
     for (const line of say) save.campaign.transcript.push({ who: "gm", text: line });
 
-    // Apply patch
+    // Apply patch (if your gm.schema.js provides applyPatch)
     if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
       save = window.BF_GM.applyPatch(save, patch);
     }
@@ -487,7 +535,6 @@ if (!res.ok) {
 
     render();
 
-    // Auto-scroll terminal
     const term = document.getElementById("term");
     if (term) term.scrollTop = term.scrollHeight;
   }
@@ -529,5 +576,13 @@ if (!res.ok) {
   }
 
   // ---- Boot ----
+  // Ensure campaign exists so the UI doesn’t feel empty
+  const boot = getActiveSave();
+  boot.campaign = boot.campaign || {};
+  boot.campaign.campaignId = boot.campaign.campaignId || "oregon_brogan_v1";
+  boot.campaign.turn = Number(boot.campaign.turn || 0);
+  boot.campaign.transcript = Array.isArray(boot.campaign.transcript) ? boot.campaign.transcript : [];
+  commitActiveSave(boot);
+
   render();
 })();
