@@ -425,19 +425,34 @@
       event
     };
 
-    let data;
-    try {
-      const res = await fetch(GM_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      data = await res.json();
-    } catch (e) {
-      pushLocalLog(save, "ERROR", "GM call failed.");
-      render();
-      return;
-    }
+    let res, raw;
+try {
+  res = await fetch(GM_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  raw = await res.text();
+} catch (e) {
+  pushLocalLog(save, "ERROR", "GM network/CORS failure", { detail: String(e) });
+  render();
+  return;
+}
+
+let data;
+try {
+  data = JSON.parse(raw);
+} catch (e) {
+  pushLocalLog(save, "ERROR", `GM returned non-JSON (HTTP ${res.status})`, { preview: String(raw).slice(0, 300) });
+  render();
+  return;
+}
+
+if (!res.ok) {
+  pushLocalLog(save, "ERROR", `GM error (HTTP ${res.status})`, data);
+  render();
+  return;
+}
 
     // data is expected to be the strict schema object
     const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
