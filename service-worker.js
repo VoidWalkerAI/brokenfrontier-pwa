@@ -3,7 +3,7 @@
    - NEVER intercepts cross-origin requests (e.g., workers.dev)
 */
 
-const CACHE_NAME = "bf-rpg-cache-v18"; // bump this every time you change SW
+const CACHE_NAME = "bf-rpg-cache-v19"; // bump this every time you change SW
 const CORE = [
   "./",
   "./index.html",
