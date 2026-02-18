@@ -1,6 +1,6 @@
 /* Broken Frontier PWA Service Worker (offline-safe, GitHub Pages friendly) */
 
-const CACHE_NAME = "bf-rpg-cache-v24"; // <-- bump this anytime you change frontend files
+const CACHE_NAME = "bf-rpg-cache-v25"; // <-- bump this anytime you change frontend files
 const CORE = [
   "./",
   "./index.html",
