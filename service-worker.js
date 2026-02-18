@@ -1,7 +1,21 @@
-/* Broken Frontier PWA Service Worker (offline-safe, GitHub Pages friendly) */
+/* Broken Frontier PWA Service Worker (offline-safe, GitHub Pages friendly)
+   - Caches ONLY same-origin assets (your GitHub Pages site)
+   - NEVER intercepts cross-origin requests (e.g., workers.dev)
+*/
 
-const CACHE_NAME = "bf-rpg-cache-v15";
-const CORE = ["./", "./index.html", "./style.css", "./app.js", "./manifest.json", "./service-worker.js"];
+const CACHE_NAME = "bf-rpg-cache-v16"; // bump this every time you change SW
+const CORE = [
+  "./",
+  "./index.html",
+  "./style.css",
+  "./app.js",
+  "./save.js",
+  "./gm.schema.js",
+  "./manifest.json",
+  "./service-worker.js",
+  "./icon-192.png",
+  "./icon-512.png"
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -21,20 +35,36 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
+
+  // IMPORTANT: Never mess with non-GET (POST to GM endpoint must pass through untouched)
   if (req.method !== "GET") return;
 
+  const url = new URL(req.url);
+
+  // IMPORTANT: Never intercept cross-origin (workers.dev, api, fonts, etc.)
+  if (url.origin !== self.location.origin) {
+    return; // let the browser handle it normally
+  }
+
   event.respondWith((async () => {
+    // Cache-first for same-origin GETs
     const cached = await caches.match(req);
     if (cached) return cached;
 
     try {
       const res = await fetch(req);
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(req, res.clone());
+
+      // Only cache successful basic/cors responses
+      if (res && res.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        cache.put(req, res.clone());
+      }
+
       return res;
     } catch (e) {
-      // If offline and not cached, fall back to app shell
-      return (await caches.match("./index.html")) || new Response("Offline", { status: 200 });
+      // Offline fallback: app shell
+      const shell = await caches.match("./index.html");
+      return shell || new Response("Offline", { status: 200 });
     }
   })());
 });
