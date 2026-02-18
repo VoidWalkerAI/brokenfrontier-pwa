@@ -1,72 +1,73 @@
-/* save.js — Broken Frontier Save Core (Unified)
-   - Supports multi-save DB (db.saves[])
-   - Supports active save id
-   - Provides patchSave() to keep schema stable
+/* save.js — Broken Frontier multi-save DB
+   Stores EVERYTHING, including sessionLog.
+   LocalStorage-based, GitHub Pages safe.
 */
 
 (function () {
-  const DB_KEY = "bf_db_v1";
+  const DB_KEY = "bf_save_db_v1";
   const ACTIVE_KEY = "bf_active_save_id_v1";
 
   function nowISO() { return new Date().toISOString(); }
+
   function uid() {
-    return "bf_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+    return "bf_" + Math.random().toString(36).slice(2, 10) + "_" + Date.now().toString(36);
   }
 
-  // ---- DB helpers ----
+  function safeParse(json, fallback) {
+    try { return JSON.parse(json); } catch { return fallback; }
+  }
+
+  // --- DB IO ---
   function loadDB() {
-    try {
-      const raw = localStorage.getItem(DB_KEY);
-      if (!raw) return { saves: [] };
-      const db = JSON.parse(raw);
-      db.saves = Array.isArray(db.saves) ? db.saves : [];
-      return db;
-    } catch {
-      return { saves: [] };
-    }
+    const raw = localStorage.getItem(DB_KEY);
+    const db = raw ? safeParse(raw, null) : null;
+    return patchDB(db);
   }
 
   function writeDB(db) {
-    db = db || {};
-    db.saves = Array.isArray(db.saves) ? db.saves : [];
     localStorage.setItem(DB_KEY, JSON.stringify(db));
   }
 
-  function getActiveSaveId() {
-    return localStorage.getItem(ACTIVE_KEY) || "";
+  function patchDB(db) {
+    if (!db || typeof db !== "object") db = {};
+    db.saves = Array.isArray(db.saves) ? db.saves : [];
+
+    // Ensure at least one save exists
+    if (db.saves.length === 0) {
+      const s = defaultSaveSlot();
+      s.title = "Save 1";
+      db.saves.push(s);
+      localStorage.setItem(ACTIVE_KEY, s.id);
+      writeDB(db);
+    }
+
+    // Patch every save
+    db.saves = db.saves.map(patchSave);
+
+    return db;
   }
 
-  function setActiveSaveId(id) {
-    if (!id) return;
-    localStorage.setItem(ACTIVE_KEY, String(id));
-  }
-
-  // ---- Save schema ----
+  // --- Save shape ---
   function defaultSaveSlot() {
-    const s = {
+    return patchSave({
       id: uid(),
-      title: "Save 1",
+      title: "Save",
       createdAt: nowISO(),
       updatedAt: nowISO(),
       character: {
         name: "Eli Brogan",
         background: "Park Ranger",
-        // core stats (keep simple)
         grit: 1,
         instinct: 2,
         will: 1,
         presence: 0,
         discipline: 0,
-
-        // trackables
         hp: 13,
         maxHp: 13,
         wounds: 0,
         stress: 0,
         exposed: false,
-        ammo: 6,
-
-        notes: ""
+        ammo: 6
       },
       campaign: {
         campaignId: "oregon_brogan_v1",
@@ -74,94 +75,73 @@
         transcript: []
       },
       worldFlags: {},
-      sessionLog: []
-    };
-    return s;
+      sessionLog: []   // <-- IMPORTANT: kept and persisted
+    });
   }
 
   function patchSave(s) {
-    // If someone imports older JSON, force it into the current shape
-    s = (s && typeof s === "object") ? s : {};
+    if (!s || typeof s !== "object") s = {};
     if (!s.id) s.id = uid();
-    if (!s.title) s.title = "Save";
     if (!s.createdAt) s.createdAt = nowISO();
-    s.updatedAt = nowISO();
+    if (!s.updatedAt) s.updatedAt = nowISO();
+    if (!s.title) s.title = "Save";
 
-    s.character = (s.character && typeof s.character === "object") ? s.character : {};
-    const c = s.character;
+    s.character = s.character && typeof s.character === "object" ? s.character : {};
+    s.campaign = s.campaign && typeof s.campaign === "object" ? s.campaign : {};
+    s.worldFlags = s.worldFlags && typeof s.worldFlags === "object" ? s.worldFlags : {};
+    s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
 
-    if (!c.name) c.name = "Eli Brogan";
-    if (!c.background) c.background = "Park Ranger";
-
-    // stats
-    c.grit = Number.isFinite(Number(c.grit)) ? Number(c.grit) : 1;
-    c.instinct = Number.isFinite(Number(c.instinct)) ? Number(c.instinct) : 2;
-    c.will = Number.isFinite(Number(c.will)) ? Number(c.will) : 1;
-    c.presence = Number.isFinite(Number(c.presence)) ? Number(c.presence) : 0;
-    c.discipline = Number.isFinite(Number(c.discipline)) ? Number(c.discipline) : 0;
-
-    // trackables
-    c.maxHp = Number.isFinite(Number(c.maxHp)) ? Number(c.maxHp) : 13;
-    c.hp = Number.isFinite(Number(c.hp)) ? Number(c.hp) : c.maxHp;
-    c.hp = Math.max(0, Math.min(c.maxHp, c.hp));
-
-    c.wounds = Number.isFinite(Number(c.wounds)) ? Number(c.wounds) : 0;
-    c.stress = Number.isFinite(Number(c.stress)) ? Number(c.stress) : 0;
-    c.ammo = Number.isFinite(Number(c.ammo)) ? Number(c.ammo) : 6;
-    c.exposed = !!c.exposed;
-
-    if (typeof c.notes !== "string") c.notes = "";
-
-    s.campaign = (s.campaign && typeof s.campaign === "object") ? s.campaign : {};
-    s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
-    s.campaign.turn = Number.isFinite(Number(s.campaign.turn)) ? Number(s.campaign.turn) : 0;
+    // Campaign defaults
+    if (!s.campaign.campaignId) s.campaign.campaignId = "oregon_brogan_v1";
+    s.campaign.turn = Number(s.campaign.turn || 0);
     s.campaign.transcript = Array.isArray(s.campaign.transcript) ? s.campaign.transcript : [];
 
-    s.worldFlags = (s.worldFlags && typeof s.worldFlags === "object") ? s.worldFlags : {};
-    s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
+    // Character defaults (don’t overwrite existing)
+    if (!("name" in s.character)) s.character.name = "Eli Brogan";
+    if (!("hp" in s.character)) s.character.hp = 13;
+    if (!("maxHp" in s.character)) s.character.maxHp = 13;
+    if (!("wounds" in s.character)) s.character.wounds = 0;
+    if (!("stress" in s.character)) s.character.stress = 0;
+    if (!("exposed" in s.character)) s.character.exposed = false;
+    if (!("ammo" in s.character)) s.character.ammo = 6;
 
     return s;
   }
 
-  // ---- Core operations ----
+  // --- Active save ---
+  function getActiveSaveId() {
+    return localStorage.getItem(ACTIVE_KEY) || "";
+  }
+
+  function setActiveSaveId(id) {
+    localStorage.setItem(ACTIVE_KEY, id);
+  }
+
   function getActiveSave() {
     const db = loadDB();
     const id = getActiveSaveId();
+    let s = db.saves.find(x => x.id === id) || db.saves[0];
+    s = patchSave(s);
 
-    // If no saves exist, create one
-    if (!db.saves.length) {
-      const s = defaultSaveSlot();
-      db.saves.push(s);
-      writeDB(db);
-      setActiveSaveId(s.id);
-      return patchSave(s);
-    }
+    // If active id was missing, repair it
+    if (s && s.id && s.id !== id) setActiveSaveId(s.id);
 
-    // If active id missing, point to the first
-    if (!id) {
-      setActiveSaveId(db.saves[0].id);
-      return patchSave(db.saves[0]);
-    }
-
-    const found = db.saves.find(x => x.id === id);
-    if (found) return patchSave(found);
-
-    // active id points to nothing: reset
-    setActiveSaveId(db.saves[0].id);
-    return patchSave(db.saves[0]);
+    return s;
   }
 
   function commitActiveSave(save) {
     const db = loadDB();
-    save = patchSave(save);
+    const fixed = patchSave(save);
+    fixed.updatedAt = nowISO();
 
-    db.saves = Array.isArray(db.saves) ? db.saves : [];
-    const idx = db.saves.findIndex(x => x.id === save.id);
-    if (idx >= 0) db.saves[idx] = save;
-    else db.saves.push(save);
+    const id = getActiveSaveId() || fixed.id;
+    setActiveSaveId(id);
+
+    const idx = db.saves.findIndex(x => x.id === id);
+    if (idx >= 0) db.saves[idx] = fixed;
+    else db.saves.push(fixed);
 
     writeDB(db);
-    setActiveSaveId(save.id);
   }
 
   function hardResetAllSaves() {
@@ -169,16 +149,14 @@
     localStorage.removeItem(ACTIVE_KEY);
   }
 
-  // ---- Export to global ----
+  // Export these to window for app.js
   window.loadDB = loadDB;
   window.writeDB = writeDB;
-  window.getActiveSaveId = getActiveSaveId;
-  window.setActiveSaveId = setActiveSaveId;
-
   window.defaultSaveSlot = defaultSaveSlot;
   window.patchSave = patchSave;
-
   window.getActiveSave = getActiveSave;
+  window.getActiveSaveId = getActiveSaveId;
+  window.setActiveSaveId = setActiveSaveId;
   window.commitActiveSave = commitActiveSave;
   window.hardResetAllSaves = hardResetAllSaves;
 })();
