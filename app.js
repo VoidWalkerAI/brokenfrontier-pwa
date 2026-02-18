@@ -482,21 +482,34 @@
     };
 
     let data;
-    try {
-      const res = await fetch(GM_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+try {
+  const res = await fetch(GM_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
-      // If Worker returns non-JSON, this prevents silent death
-      const txt = await res.text();
-      try { data = JSON.parse(txt); }
-      catch {
-        pushLocalLog(save, "ERROR", `GM returned non-JSON: ${txt.slice(0, 120)}`);
-        render();
-        return;
-      }
+  const raw = await res.text();
+
+  // show status + first part of body if anything is wrong
+  if (!res.ok) {
+    pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
+    render();
+    return;
+  }
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    pushLocalLog(save, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
+    render();
+    return;
+  }
+} catch (e) {
+  pushLocalLog(save, "ERROR", `GM fetch failed — ${String(e)}`);
+  render();
+  return;
+}
     } catch (e) {
       pushLocalLog(save, "ERROR", "GM call failed.");
       render();
