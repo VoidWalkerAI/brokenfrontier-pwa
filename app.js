@@ -307,12 +307,16 @@
     };
 
     try {
+       pushLocalLog(save, "NET", `POST → ${GM_ENDPOINT}`);
+       
       const res = await fetch(GM_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       const raw = await res.text();
+
+       pushLocalLog(save, "NET", `HTTP ${res.status} ${res.statusText}`);
 
       if (!res.ok) {
         pushLocalLog(save, "ERROR", `GM HTTP ${res.status} — ${raw.slice(0, 200)}`);
