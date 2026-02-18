@@ -1,36 +1,11 @@
-/* app.js — Broken Frontier RPG (BUILD-TATTOO DEBUG)
-   If you do not see the BUILD banner, you are running an old cached app.js.
+/* app.js — Broken Frontier RPG (AI-GM Terminal + Saves)
+   - Frontend (GitHub Pages)
+   - Uses save.js (multi-save DB)
+   - Uses gm.schema.js (optional patch rules)
+   - Calls Cloudflare Worker endpoint: window.BF_GM_ENDPOINT (/api/turn)
 */
 
 (function () {
-  // HARD GUARD: prevent double-boot
-  if (window.__BF_APP_LOADED__) return;
-  window.__BF_APP_LOADED__ = true;
-
-  const BUILD_ID = "BUILD 2026-02-18 / TATTOO-v1";
-
-  // Paint build banner immediately (does NOT rely on save.js)
-  const banner = document.createElement("div");
-  banner.id = "bfBuildBanner";
-  banner.style.cssText = [
-    "position:fixed",
-    "top:0",
-    "left:0",
-    "right:0",
-    "z-index:999999",
-    "padding:8px 10px",
-    "font:12px/1.2 monospace",
-    "background:#111",
-    "color:#0f0",
-    "border-bottom:1px solid #333"
-  ].join(";");
-  banner.textContent = `${BUILD_ID} — booting...`;
-  document.documentElement.appendChild(banner);
-
-  function bannerSay(msg) {
-    banner.textContent = `${BUILD_ID} — ${msg}`;
-  }
-
   // PWA register
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -39,14 +14,10 @@
   }
 
   const $app = document.getElementById("app");
-  if (!$app) {
-    bannerSay("ERROR: #app not found");
-    return;
-  }
+  if (!$app) return;
 
   // Must be set in index.html
   const GM_ENDPOINT = window.BF_GM_ENDPOINT || "";
-  bannerSay(GM_ENDPOINT ? "GM endpoint SET" : "GM endpoint NOT SET");
 
   // ---- Helpers ----
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -54,24 +25,16 @@
   }[c]));
 
   function nowISO() { return new Date().toISOString(); }
-
-  // Save-layer wrappers (so we can still show life even if save.js breaks)
-  function safeGetActiveSave() {
-    try { return getActiveSave(); } catch { return null; }
-  }
-  function safeCommit(save) {
-    try { commitActiveSave(save); } catch {}
-  }
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
   function pushLocalLog(save, type, text, data) {
-    if (!save) return;
     save.sessionLog = Array.isArray(save.sessionLog) ? save.sessionLog : [];
     save.sessionLog.unshift({ at: nowISO(), type, text, data: data || null });
-    safeCommit(save);
+    commitActiveSave(save);
   }
 
   function computeStat(save, statName) {
-    const c = (save && save.character) || {};
+    const c = save.character || {};
     const key = String(statName || "").toLowerCase();
     return Number(c[key] || 0);
   }
@@ -79,15 +42,19 @@
   function rollD20() { return Math.floor(Math.random() * 20) + 1; }
   function roll2d6() { return (Math.floor(Math.random() * 6) + 1) + (Math.floor(Math.random() * 6) + 1); }
 
-  const ui = { tab: "play", pendingRoll: null };
+  // ---- UI State ----
+  const ui = {
+    tab: "play",
+    pendingRoll: null
+  };
 
   function tabBtn(id, label) {
     const active = ui.tab === id ? "active" : "";
-    return `<button class="bf-tab ${active}" data-tab="${id}" type="button">${label}</button>`;
+    return `<button class="bf-tab ${active}" data-tab="${id}">${label}</button>`;
   }
 
   function render() {
-    const save = safeGetActiveSave() || { character: {}, campaign: { transcript: [], campaignId: "—", turn: 0 }, sessionLog: [] };
+    const save = getActiveSave();
     const c = save.character || {};
     const hp = Number(c.hp || 0);
     const maxHp = Number(c.maxHp || 0);
@@ -97,9 +64,6 @@
 
     const campaignId = (save.campaign && save.campaign.campaignId) || "—";
     const turn = Number((save.campaign && save.campaign.turn) || 0);
-
-    // Push content down so banner doesn’t cover it
-    $app.style.marginTop = "38px";
 
     $app.innerHTML = `
       <div class="bf-shell">
@@ -113,8 +77,9 @@
           </div>
 
           <div class="bf-actions">
-            <button class="bf-btn ghost" id="exportBtn" type="button">Export Save</button>
-            <button class="bf-btn ghost" id="importBtn" type="button">Import Save</button>
+            <button class="bf-btn ghost" id="exportBtn">Export Save</button>
+            <button class="bf-btn ghost" id="importBtn">Import Save</button>
+            <button class="bf-btn danger" id="hardResetTop">Hard Reset</button>
           </div>
         </header>
 
@@ -128,10 +93,10 @@
 
         <main class="bf-main">
           ${ui.tab === "play" ? playView(save) : ""}
+          ${ui.tab === "saves" ? savesView() : ""}
+          ${ui.tab === "character" ? characterView(save) : ""}
           ${ui.tab === "log" ? logView(save) : ""}
           ${ui.tab === "settings" ? settingsView() : ""}
-          ${ui.tab === "character" ? `<section class="bf-card"><div class="bf-card-head"><div class="bf-card-title">Character</div><div class="bf-dim">(debug build)</div></div></section>` : ""}
-          ${ui.tab === "saves" ? `<section class="bf-card"><div class="bf-card-head"><div class="bf-card-title">Saves</div><div class="bf-dim">(debug build)</div></div></section>` : ""}
         </main>
 
         <footer class="bf-footer">
@@ -143,21 +108,30 @@
       </div>
     `;
 
+    // tabs
     document.querySelectorAll("[data-tab]").forEach(btn => {
       btn.onclick = () => { ui.tab = btn.getAttribute("data-tab"); render(); };
     });
 
-    // export/import might not exist if save.js is missing — keep safe
-    const exportBtn = document.getElementById("exportBtn");
-    if (exportBtn) exportBtn.onclick = () => bannerSay("EXPORT pressed (debug)");
+    // export/import
+    const exp = document.getElementById("exportBtn");
+    const imp = document.getElementById("importBtn");
+    if (exp) exp.onclick = exportActiveSave;
+    if (imp) imp.onclick = importSavePrompt;
 
-    const importBtn = document.getElementById("importBtn");
-    if (importBtn) importBtn.onclick = () => bannerSay("IMPORT pressed (debug)");
+    // hard reset always available
+    const topReset = document.getElementById("hardResetTop");
+    if (topReset) topReset.onclick = () => hardResetFlow();
 
+    // bind per-tab
     if (ui.tab === "play") bindPlay();
+    if (ui.tab === "saves") bindSaves();
+    if (ui.tab === "character") bindCharacter();
     if (ui.tab === "log") bindLog();
+    if (ui.tab === "settings") bindSettings();
   }
 
+  // ---- Views ----
   function playView(save) {
     const transcript = (save.campaign && save.campaign.transcript) || [];
     const last = transcript.slice(-18);
@@ -166,6 +140,31 @@
       const who = m.who === "player" ? "YOU" : "GM";
       return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(m.text)}</div>`;
     }).join("");
+
+    const rollPanel = ui.pendingRoll ? `
+      <section class="bf-card" style="margin-top:10px;">
+        <div class="bf-card-head">
+          <div class="bf-card-title">Roll Required</div>
+          <div class="bf-dim">${esc(ui.pendingRoll.prompt || "")}</div>
+        </div>
+        <div class="bf-row">
+          <div class="bf-stat"><div class="bf-stat-label">Dice</div><div class="bf-stat-val">${esc(ui.pendingRoll.dice)}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">TN</div><div class="bf-stat-val">${Number(ui.pendingRoll.tn || 0)}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Stat</div><div class="bf-stat-val">${esc(ui.pendingRoll.stat || "none")}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Mod</div><div class="bf-stat-val">${Number(ui.pendingRoll.mod || 0)}</div></div>
+        </div>
+
+        <div class="bf-dim" style="margin-top:8px;">You can roll physical dice. Tap Roll Now, then type your natural result.</div>
+        <div class="bf-mini" style="margin-top:10px;">
+          <input class="bf-input" id="rollNat" placeholder="Enter natural roll (optional)" inputmode="numeric"/>
+        </div>
+
+        <div class="bf-mini" style="margin-top:10px;">
+          <button class="bf-btn" id="btnRollNow">Roll Now</button>
+          <button class="bf-btn ghost" id="btnCancelRoll">Cancel</button>
+        </div>
+      </section>
+    ` : "";
 
     return `
       <section class="bf-card">
@@ -180,19 +179,87 @@
 
         <div class="bf-note" style="margin-top:12px;">
           <div class="bf-dim">What do you do?</div>
-          <textarea id="playerInput" class="bf-textarea" rows="3"></textarea>
+          <textarea id="playerInput" class="bf-textarea" rows="3" placeholder="Example: I shoulder the door open, light first, gun low, and listen."></textarea>
         </div>
 
         <div class="bf-mini" style="margin-top:10px;">
-          <button class="bf-btn" id="btnSend" type="button">Send</button>
-          <button class="bf-btn ghost" id="btnNudge" type="button">Nudge GM</button>
+          <button class="bf-btn" id="btnSend">Send</button>
+          <button class="bf-btn ghost" id="btnNudge">Nudge GM</button>
+        </div>
+
+        ${rollPanel}
+      </section>
+    `;
+  }
+
+  function savesView() {
+    const db = loadDB();
+    const activeId = getActiveSaveId();
+
+    const cards = (db.saves || []).map(s => `
+      <div class="bf-save">
+        <div class="bf-save-top">
+          <div>
+            <div class="bf-save-title">${esc(s.title || "Save")}</div>
+            <div class="bf-dim">${esc(s.updatedAt || "")}</div>
+            <div class="bf-dim">${esc((s.character && s.character.name) || "")} — HP ${(s.character && s.character.hp) || 0}/${(s.character && s.character.maxHp) || 0}</div>
+          </div>
+          <div class="bf-pill ${s.id === activeId ? "on" : ""}">${s.id === activeId ? "ACTIVE" : ""}</div>
+        </div>
+
+        <div class="bf-save-actions">
+          <button class="bf-btn" data-load="${esc(s.id)}">Load</button>
+          <button class="bf-btn danger" data-del="${esc(s.id)}">Delete</button>
+        </div>
+      </div>
+    `).join("");
+
+    return `
+      <section class="bf-card">
+        <div class="bf-card-head">
+          <div class="bf-card-title">Continue / New Game</div>
+          <button class="bf-btn" id="btnNewSave">New Save</button>
+        </div>
+        <div class="bf-stack">
+          ${cards || `<div class="bf-dim">No saves yet.</div>`}
+        </div>
+
+        <div class="bf-mini" style="margin-top:12px;">
+          <button class="bf-btn danger" id="btnHardResetSaves">Hard Reset All</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function characterView(save) {
+    const c = save.character || {};
+    const integ = (c.integrity && typeof c.integrity === "object") ? c.integrity : null;
+    const integLine = integ ? `Integrity ${Number(integ.value ?? 0)}/${Number(integ.max ?? 100)} • Layer ${esc(integ.layer)} • Vis ${esc(integ.visible)}` : "Integrity: (missing)";
+
+    return `
+      <section class="bf-card">
+        <div class="bf-card-head">
+          <div class="bf-card-title">Character</div>
+          <div class="bf-dim">Edit basics. The GM handles the rest.</div>
+        </div>
+
+        <div class="bf-dim" style="margin:8px 0 12px;">${esc(integLine)}</div>
+
+        <div class="bf-grid">
+          ${field("Name","char_name",c.name || "Eli Brogan")}
+          ${field("Background","char_bg",c.background || "Park Ranger")}
+          ${num("Grit","char_grit",c.grit || 1)}
+          ${num("Instinct","char_instinct",c.instinct || 2)}
+          ${num("Will","char_will",c.will || 1)}
+          ${num("Presence","char_presence",c.presence || 0)}
+          ${num("Discipline","char_disc",c.discipline || 0)}
         </div>
       </section>
     `;
   }
 
   function logView(save) {
-    const items = (save.sessionLog || []).slice(0, 60).map(e => `
+    const items = (save.sessionLog || []).slice(0, 120).map(e => `
       <div class="bf-log">
         <div class="bf-log-top">
           <div><b>${esc(e.type || "LOG")}</b> — ${esc(e.text || "")}</div>
@@ -205,7 +272,7 @@
       <section class="bf-card">
         <div class="bf-card-head">
           <div class="bf-card-title">Log</div>
-          <button class="bf-btn ghost" id="btnClearLog" type="button">Clear Log</button>
+          <button class="bf-btn ghost" id="btnClearLog">Clear Log</button>
         </div>
         <div class="bf-stack">
           ${items || `<div class="bf-dim">No log entries yet.</div>`}
@@ -215,30 +282,50 @@
   }
 
   function settingsView() {
+    const endpointSet = GM_ENDPOINT ? "SET" : "NOT SET";
     return `
       <section class="bf-card">
         <div class="bf-card-head">
           <div class="bf-card-title">Settings</div>
+          <button class="bf-btn danger" id="btnHardReset">Hard Reset All</button>
         </div>
+
         <div class="bf-dim" style="margin-top:8px;">
-          GM Endpoint: <b>${esc(GM_ENDPOINT ? "SET" : "NOT SET")}</b><br/>
-          Debug Build: <b>${esc(BUILD_ID)}</b>
+          GM Endpoint: <b>${esc(endpointSet)}</b><br/>
+          (Set window.BF_GM_ENDPOINT in index.html. Must include /api/turn)
         </div>
       </section>
     `;
   }
 
+  // ---- Components ----
+  function field(label, id, val) {
+    return `
+      <label class="bf-field">
+        <div class="bf-label">${esc(label)}</div>
+        <input class="bf-input" id="${esc(id)}" value="${esc(val ?? "")}">
+      </label>
+    `;
+  }
+  function num(label, id, val) {
+    return `
+      <label class="bf-field">
+        <div class="bf-label">${esc(label)}</div>
+        <input class="bf-input" id="${esc(id)}" type="number" value="${Number(val ?? 0)}">
+      </label>
+    `;
+  }
+
+  // ---- Bindings ----
   function bindPlay() {
+    const save = getActiveSave();
+
     const send = document.getElementById("btnSend");
     const nudge = document.getElementById("btnNudge");
     const input = document.getElementById("playerInput");
 
     if (send) send.onclick = async () => {
-      bannerSay("SEND pressed");
-      const live = safeGetActiveSave();
-      pushLocalLog(live, "UI", "SEND pressed");
-      render();
-
+      pushLocalLog(getActiveSave(), "UI", "SEND pressed");
       const text = (input.value || "").trim();
       if (!text) return;
       input.value = "";
@@ -246,34 +333,146 @@
     };
 
     if (nudge) nudge.onclick = async () => {
-      bannerSay("NUDGE pressed");
-      const live = safeGetActiveSave();
-      pushLocalLog(live, "UI", "NUDGE pressed");
-      render();
-
-      await gmTurn({ type: "nudge", text: "NUDGE: escalate with one concrete clue + one direct question." });
+      pushLocalLog(getActiveSave(), "UI", "NUDGE pressed");
+      await gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
     };
+
+    const rollNow = document.getElementById("btnRollNow");
+    const cancelRoll = document.getElementById("btnCancelRoll");
+    const rollNat = document.getElementById("rollNat");
+
+    if (rollNow) rollNow.onclick = async () => {
+      if (!ui.pendingRoll) return;
+
+      const typed = Number((rollNat && rollNat.value || "").trim());
+      const dice = ui.pendingRoll.dice || "d20";
+      const nat =
+        Number.isFinite(typed) && typed > 0
+          ? typed
+          : (dice === "2d6" ? roll2d6() : rollD20());
+
+      const live = getActiveSave();
+      const stat = computeStat(live, ui.pendingRoll.stat);
+      const mod = Number(ui.pendingRoll.mod || 0);
+
+      const wounds = Number(live.character.wounds || 0);
+      const stress = Number(live.character.stress || 0);
+      const penalty = wounds + Math.floor(stress / 3);
+
+      const total = nat + stat + mod - penalty;
+
+      const rollPacket = {
+        nat, total, dice,
+        kind: ui.pendingRoll.kind || "Check",
+        tn: Number(ui.pendingRoll.tn || 12),
+        statName: ui.pendingRoll.stat || "none",
+        mod, stat, penalty
+      };
+
+      ui.pendingRoll = null;
+      if (rollNat) rollNat.value = "";
+
+      pushLocalLog(live, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
+
+      await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
+    };
+
+    if (cancelRoll) cancelRoll.onclick = () => {
+      ui.pendingRoll = null;
+      render();
+    };
+  }
+
+  function bindSaves() {
+    const btnNew = document.getElementById("btnNewSave");
+    if (btnNew) btnNew.onclick = () => {
+      const db = loadDB();
+      const s = defaultSaveSlot();
+      s.title = `Save ${((db.saves || []).length) + 1}`;
+      db.saves = Array.isArray(db.saves) ? db.saves : [];
+      db.saves.push(s);
+      writeDB(db);
+      setActiveSaveId(s.id);
+      pushLocalLog(s, "SAVE", "Created new save");
+      ui.tab = "play";
+      render();
+    };
+
+    document.querySelectorAll("[data-load]").forEach(b => {
+      b.onclick = () => {
+        const id = b.getAttribute("data-load");
+        setActiveSaveId(id);
+        const s = getActiveSave();
+        pushLocalLog(s, "SAVE", `Loaded ${id}`);
+        ui.tab = "play";
+        render();
+      };
+    });
+
+    document.querySelectorAll("[data-del]").forEach(b => {
+      b.onclick = () => {
+        const id = b.getAttribute("data-del");
+        const db = loadDB();
+        db.saves = (db.saves || []).filter(s => s.id !== id);
+        writeDB(db);
+        if (getActiveSaveId() === id) {
+          localStorage.removeItem("bf_active_save_id_v1");
+        }
+        render();
+      };
+    });
+
+    const r2 = document.getElementById("btnHardResetSaves");
+    if (r2) r2.onclick = () => hardResetFlow();
+  }
+
+  function bindCharacter() {
+    const save = getActiveSave();
+    const c = save.character || (save.character = {});
+    const bindInput = (id, fn) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.onchange = () => {
+        fn(el.value);
+        commitActiveSave(save);
+        render();
+      };
+    };
+
+    bindInput("char_name", (v) => (c.name = v));
+    bindInput("char_bg", (v) => (c.background = v));
+    bindInput("char_grit", (v) => (c.grit = Number(v)));
+    bindInput("char_instinct", (v) => (c.instinct = Number(v)));
+    bindInput("char_will", (v) => (c.will = Number(v)));
+    bindInput("char_presence", (v) => (c.presence = Number(v)));
+    bindInput("char_disc", (v) => (c.discipline = Number(v)));
   }
 
   function bindLog() {
-    const live = safeGetActiveSave();
+    const save = getActiveSave();
     const btn = document.getElementById("btnClearLog");
     if (btn) btn.onclick = () => {
-      bannerSay("CLEAR LOG pressed");
-      if (live) {
-        live.sessionLog = [];
-        safeCommit(live);
-      }
+      save.sessionLog = [];
+      commitActiveSave(save);
       render();
     };
   }
 
+  function bindSettings() {
+    const r = document.getElementById("btnHardReset");
+    if (r) r.onclick = () => hardResetFlow();
+  }
+
+  function hardResetFlow() {
+    // local-only wipe
+    hardResetAllSaves();
+    // force reload so save.js re-seeds a clean save slot
+    location.reload();
+  }
+
+  // ---- GM Turn (calls backend) ----
   async function gmTurn(event) {
-    const save = safeGetActiveSave();
-    if (!save) {
-      bannerSay("ERROR: save.js not responding");
-      return;
-    }
+    let save = getActiveSave();
 
     save.campaign = save.campaign || {};
     save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
@@ -282,24 +481,26 @@
     if (event.type === "player_action") {
       save.campaign.transcript.push({ who: "player", text: event.text });
       save.campaign.turn += 1;
-      safeCommit(save);
+      commitActiveSave(save);
       render();
     }
 
     if (!GM_ENDPOINT) {
-      pushLocalLog(save, "ERROR", "GM endpoint not set in index.html");
-      bannerSay("ERROR: endpoint not set");
+      pushLocalLog(save, "ERROR", "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html.");
       render();
       return;
     }
 
+    const transcript = (save.campaign.transcript || []).slice(-24);
+
     const payload = {
+      schema: window.BF_GM && window.BF_GM.schema ? window.BF_GM.schema : null,
       save: {
         character: save.character,
         campaign: {
           campaignId: save.campaign.campaignId,
           turn: save.campaign.turn,
-          transcript: (save.campaign.transcript || []).slice(-24)
+          transcript
         },
         worldFlags: save.worldFlags
       },
@@ -307,43 +508,116 @@
     };
 
     try {
-       pushLocalLog(save, "NET", `POST → ${GM_ENDPOINT}`);
-       
+      pushLocalLog(save, "NET", `POST → ${GM_ENDPOINT}`);
       const res = await fetch(GM_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
       const raw = await res.text();
 
-       pushLocalLog(save, "NET", `HTTP ${res.status} ${res.statusText}`);
-
       if (!res.ok) {
-        pushLocalLog(save, "ERROR", `GM HTTP ${res.status} — ${raw.slice(0, 200)}`);
-        bannerSay(`GM HTTP ${res.status}`);
+        pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
         render();
         return;
       }
 
-      const data = JSON.parse(raw);
-      const say = Array.isArray(data.say) ? data.say : [];
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        pushLocalLog(save, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
+        render();
+        return;
+      }
 
+      pushLocalLog(save, "NET", `HTTP ${res.status}`);
+
+      const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
+      const patch = data.patch || null;
+      const roll = data.roll || null;
+
+      // Append GM speech
+      save = getActiveSave();
+      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
       for (const line of say) save.campaign.transcript.push({ who: "gm", text: line });
-      safeCommit(save);
-      bannerSay("GM responded");
+
+      // Apply patch (optional)
+      if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
+        save = window.BF_GM.applyPatch(save, patch);
+      }
+
+      commitActiveSave(save);
+
+      // Roll request
+      if (roll && roll.needRoll) {
+        ui.pendingRoll = {
+          dice: roll.dice || "d20",
+          kind: roll.kind || "Check",
+          tn: Number(roll.tn || 12),
+          stat: roll.stat || "none",
+          mod: Number(roll.mod || 0),
+          prompt: roll.prompt || "Make a roll."
+        };
+      } else {
+        ui.pendingRoll = null;
+      }
+
       render();
+
+      const term = document.getElementById("term");
+      if (term) term.scrollTop = term.scrollHeight;
     } catch (e) {
-      pushLocalLog(save, "ERROR", `GM fetch failed — ${String(e)}`);
-      bannerSay("GM fetch failed");
+      pushLocalLog(getActiveSave(), "ERROR", `GM fetch failed — ${String(e)}`);
       render();
     }
   }
 
-  // Boot: attempt to write a log immediately
-  const bootSave = safeGetActiveSave();
-  if (bootSave) {
-    pushLocalLog(bootSave, "BOOT", "app.js loaded (debug tattoo build)");
+  // ---- Export / Import ----
+  function exportActiveSave() {
+    const s = getActiveSave();
+    const blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(s.title || "save").replace(/\s+/g,"_").toLowerCase()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
+  function importSavePrompt() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const text = await file.text();
+      let imported;
+      try { imported = JSON.parse(text); } catch { return; }
+
+      imported = patchSave(imported);
+      const db = loadDB();
+      db.saves = Array.isArray(db.saves) ? db.saves : [];
+      const idx = db.saves.findIndex(x => x.id === imported.id);
+      if (idx >= 0) db.saves[idx] = imported;
+      else db.saves.push(imported);
+      writeDB(db);
+      setActiveSaveId(imported.id);
+      render();
+    };
+    input.click();
+  }
+
+  // ---- Boot ----
+  const boot = getActiveSave();
+  boot.campaign = boot.campaign || {};
+  boot.campaign.campaignId = boot.campaign.campaignId || "oregon_brogan_v1";
+  boot.campaign.turn = Number(boot.campaign.turn || 0);
+  boot.campaign.transcript = Array.isArray(boot.campaign.transcript) ? boot.campaign.transcript : [];
+  commitActiveSave(boot);
+
+  pushLocalLog(getActiveSave(), "BOOT", "app.js loaded and UI bound");
   render();
 })();
