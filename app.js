@@ -6,6 +6,10 @@
 */
 
 (function () {
+  // === HARD GUARD: prevent double-boot ===
+  if (window.__BF_APP_LOADED__) return;
+  window.__BF_APP_LOADED__ = true;
+
   // PWA register
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -17,19 +21,12 @@
   if (!$app) return;
 
   // Must be set in index.html
-  function getEndpoint() {
-    return (window.BF_GM_ENDPOINT || "").trim();
-  }
+  const GM_ENDPOINT = window.BF_GM_ENDPOINT || "";
 
   // ---- Helpers ----
-  const esc = (s) =>
-    String(s ?? "").replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;",
-    }[c]));
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
 
   function nowISO() { return new Date().toISOString(); }
 
@@ -56,7 +53,7 @@
 
   function tabBtn(id, label) {
     const active = ui.tab === id ? "active" : "";
-    return `<button class="bf-tab ${active}" data-tab="${id}">${label}</button>`;
+    return `<button class="bf-tab ${active}" data-tab="${id}" type="button">${label}</button>`;
   }
 
   function render() {
@@ -83,8 +80,8 @@
           </div>
 
           <div class="bf-actions">
-            <button class="bf-btn ghost" id="exportBtn">Export Save</button>
-            <button class="bf-btn ghost" id="importBtn">Import Save</button>
+            <button class="bf-btn ghost" id="exportBtn" type="button">Export Save</button>
+            <button class="bf-btn ghost" id="importBtn" type="button">Import Save</button>
           </div>
         </header>
 
@@ -159,8 +156,8 @@
         </div>
 
         <div class="bf-mini" style="margin-top:10px;">
-          <button class="bf-btn" id="btnRollNow">Roll Now</button>
-          <button class="bf-btn ghost" id="btnCancelRoll">Cancel</button>
+          <button class="bf-btn" id="btnRollNow" type="button">Roll Now</button>
+          <button class="bf-btn ghost" id="btnCancelRoll" type="button">Cancel</button>
         </div>
       </section>
     ` : "";
@@ -182,8 +179,8 @@
         </div>
 
         <div class="bf-mini" style="margin-top:10px;">
-          <button class="bf-btn" id="btnSend">Send</button>
-          <button class="bf-btn ghost" id="btnNudge">Nudge GM</button>
+          <button class="bf-btn" id="btnSend" type="button">Send</button>
+          <button class="bf-btn ghost" id="btnNudge" type="button">Nudge GM</button>
         </div>
 
         ${rollPanel}
@@ -207,8 +204,8 @@
         </div>
 
         <div class="bf-save-actions">
-          <button class="bf-btn" data-load="${esc(s.id)}">Load</button>
-          <button class="bf-btn danger" data-del="${esc(s.id)}">Delete</button>
+          <button class="bf-btn" data-load="${esc(s.id)}" type="button">Load</button>
+          <button class="bf-btn danger" data-del="${esc(s.id)}" type="button">Delete</button>
         </div>
       </div>
     `).join("");
@@ -217,7 +214,7 @@
       <section class="bf-card">
         <div class="bf-card-head">
           <div class="bf-card-title">Continue / New Game</div>
-          <button class="bf-btn" id="btnNewSave">New Save</button>
+          <button class="bf-btn" id="btnNewSave" type="button">New Save</button>
         </div>
         <div class="bf-stack">
           ${cards || `<div class="bf-dim">No saves yet.</div>`}
@@ -249,7 +246,7 @@
   }
 
   function logView(save) {
-    const items = (save.sessionLog || []).slice(0, 80).map(e => `
+    const items = (save.sessionLog || []).slice(0, 60).map(e => `
       <div class="bf-log">
         <div class="bf-log-top">
           <div><b>${esc(e.type || "LOG")}</b> — ${esc(e.text || "")}</div>
@@ -262,7 +259,7 @@
       <section class="bf-card">
         <div class="bf-card-head">
           <div class="bf-card-title">Log</div>
-          <button class="bf-btn ghost" id="btnClearLog">Clear Log</button>
+          <button class="bf-btn ghost" id="btnClearLog" type="button">Clear Log</button>
         </div>
         <div class="bf-stack">
           ${items || `<div class="bf-dim">No log entries yet.</div>`}
@@ -272,18 +269,16 @@
   }
 
   function settingsView() {
-    const endpoint = getEndpoint();
-    const endpointSet = endpoint ? "SET" : "NOT SET";
+    const endpointSet = GM_ENDPOINT ? "SET" : "NOT SET";
     return `
       <section class="bf-card">
         <div class="bf-card-head">
           <div class="bf-card-title">Settings</div>
-          <button class="bf-btn danger" id="btnHardReset">Hard Reset All</button>
+          <button class="bf-btn danger" id="btnHardReset" type="button">Hard Reset All</button>
         </div>
 
         <div class="bf-dim" style="margin-top:8px;">
           GM Endpoint: <b>${esc(endpointSet)}</b><br/>
-          <span class="bf-dim">${esc(endpoint || "(none)")}</span><br/>
           (Set window.BF_GM_ENDPOINT in index.html. Must include /api/turn)
         </div>
       </section>
@@ -315,6 +310,10 @@
     const input = document.getElementById("playerInput");
 
     if (send) send.onclick = async () => {
+      const live = getActiveSave();
+      pushLocalLog(live, "UI", "SEND pressed");
+      render();
+
       const text = (input.value || "").trim();
       if (!text) return;
       input.value = "";
@@ -322,7 +321,14 @@
     };
 
     if (nudge) nudge.onclick = async () => {
-      await gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
+      const live = getActiveSave();
+      pushLocalLog(live, "UI", "NUDGE pressed");
+      render();
+
+      await gmTurn({
+        type: "nudge",
+        text: "NUDGE: Introduce ONE new concrete clue (sound/scent/track/object). Ask ONE direct question. If danger spikes, request a d20 roll."
+      });
     };
 
     const rollNow = document.getElementById("btnRollNow");
@@ -361,6 +367,7 @@
       if (rollNat) rollNat.value = "";
 
       pushLocalLog(live, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
+
       await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
     };
 
@@ -458,6 +465,7 @@
     save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
     save.campaign.turn = Number(save.campaign.turn || 0);
 
+    // Player actions go into transcript + advance turn
     if (event.type === "player_action") {
       save.campaign.transcript.push({ who: "player", text: event.text });
       save.campaign.turn += 1;
@@ -465,9 +473,8 @@
       render();
     }
 
-    const GM_ENDPOINT = getEndpoint();
     if (!GM_ENDPOINT) {
-      pushLocalLog(save, "ERROR", "GM endpoint not set in index.html (window.BF_GM_ENDPOINT).");
+      pushLocalLog(save, "ERROR", "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html.");
       render();
       return;
     }
@@ -499,7 +506,7 @@
       const raw = await res.text();
 
       if (!res.ok) {
-        pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 220)}`);
+        pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
         render();
         return;
       }
@@ -507,7 +514,7 @@
       try {
         data = JSON.parse(raw);
       } catch {
-        pushLocalLog(save, "ERROR", `GM returned non-JSON — ${raw.slice(0, 220)}`);
+        pushLocalLog(save, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
         render();
         return;
       }
@@ -526,7 +533,7 @@
     save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
     for (const line of say) save.campaign.transcript.push({ who: "gm", text: line });
 
-    // Apply patch (optional)
+    // Apply patch if you have applyPatch available
     if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
       save = window.BF_GM.applyPatch(save, patch);
     }
@@ -597,6 +604,7 @@
   boot.campaign.transcript = Array.isArray(boot.campaign.transcript) ? boot.campaign.transcript : [];
   commitActiveSave(boot);
 
-  pushLocalLog(boot, "BOOT", "app.js loaded and UI bound");
+  // Boot log so you can see load events
+  pushLocalLog(getActiveSave(), "BOOT", "app.js loaded and UI bound");
   render();
 })();
