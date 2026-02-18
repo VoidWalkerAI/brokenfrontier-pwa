@@ -20,12 +20,21 @@
   const GM_ENDPOINT = window.BF_GM_ENDPOINT || "";
 
   // ---- Helpers ----
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[c]));
+  const esc = (s) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    }[c]));
 
-  function nowISO() { return new Date().toISOString(); }
-  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+  function nowISO() {
+    return new Date().toISOString();
+  }
+  function clamp(n, a, b) {
+    return Math.max(a, Math.min(b, n));
+  }
 
   function pushLocalLog(save, type, text, data) {
     save.sessionLog = Array.isArray(save.sessionLog) ? save.sessionLog : [];
@@ -39,13 +48,19 @@
     return Number(c[key] || 0);
   }
 
-  function rollD20() { return Math.floor(Math.random() * 20) + 1; }
-  function roll2d6() { return (Math.floor(Math.random() * 6) + 1) + (Math.floor(Math.random() * 6) + 1); }
+  function rollD20() {
+    return Math.floor(Math.random() * 20) + 1;
+  }
+  function roll2d6() {
+    return (
+      Math.floor(Math.random() * 6) + 1 + (Math.floor(Math.random() * 6) + 1)
+    );
+  }
 
   // ---- UI State ----
   const ui = {
     tab: "play",
-    pendingRoll: null
+    pendingRoll: null,
   };
 
   function tabBtn(id, label) {
@@ -72,7 +87,9 @@
             <div class="bf-badge">BF</div>
             <div class="bf-title">
               <div class="bf-name">Broken Frontier RPG</div>
-              <div class="bf-sub">AI-GM Runtime — ${esc(campaignId)} — Turn ${turn}</div>
+              <div class="bf-sub">AI-GM Runtime — ${esc(
+                campaignId
+              )} — Turn ${turn}</div>
             </div>
           </div>
 
@@ -83,11 +100,11 @@
         </header>
 
         <nav class="bf-tabs">
-          ${tabBtn("play","Play")}
-          ${tabBtn("saves","Saves")}
-          ${tabBtn("character","Character")}
-          ${tabBtn("log","Log")}
-          ${tabBtn("settings","Settings")}
+          ${tabBtn("play", "Play")}
+          ${tabBtn("saves", "Saves")}
+          ${tabBtn("character", "Character")}
+          ${tabBtn("log", "Log")}
+          ${tabBtn("settings", "Settings")}
         </nav>
 
         <main class="bf-main">
@@ -100,7 +117,9 @@
 
         <footer class="bf-footer">
           <div class="bf-hud">
-            <div><b>${esc(c.name || "—")}</b> — HP ${hp}/${maxHp} • W ${wounds} • Stress ${stress} • Exposed ${exposed ? "YES" : "NO"}</div>
+            <div><b>${esc(c.name || "—")}</b> — HP ${hp}/${maxHp} • W ${wounds} • Stress ${stress} • Exposed ${
+      exposed ? "YES" : "NO"
+    }</div>
             <div class="bf-dim">Campaign: ${esc(campaignId)} • Turn: ${turn}</div>
           </div>
         </footer>
@@ -108,8 +127,11 @@
     `;
 
     // tabs
-    document.querySelectorAll("[data-tab]").forEach(btn => {
-      btn.onclick = () => { ui.tab = btn.getAttribute("data-tab"); render(); };
+    document.querySelectorAll("[data-tab]").forEach((btn) => {
+      btn.onclick = () => {
+        ui.tab = btn.getAttribute("data-tab");
+        render();
+      };
     });
 
     // export/import
@@ -129,22 +151,35 @@
     const transcript = (save.campaign && save.campaign.transcript) || [];
     const last = transcript.slice(-18);
 
-    const lines = last.map(m => {
-      const who = m.who === "player" ? "YOU" : "GM";
-      return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(m.text)}</div>`;
-    }).join("");
+    const lines = last
+      .map((m) => {
+        const who = m.who === "player" ? "YOU" : "GM";
+        return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(
+          m.text
+        )}</div>`;
+      })
+      .join("");
 
-    const rollPanel = ui.pendingRoll ? `
+    const rollPanel = ui.pendingRoll
+      ? `
       <section class="bf-card" style="margin-top:10px;">
         <div class="bf-card-head">
           <div class="bf-card-title">Roll Required</div>
           <div class="bf-dim">${esc(ui.pendingRoll.prompt || "")}</div>
         </div>
         <div class="bf-row">
-          <div class="bf-stat"><div class="bf-stat-label">Dice</div><div class="bf-stat-val">${esc(ui.pendingRoll.dice)}</div></div>
-          <div class="bf-stat"><div class="bf-stat-label">TN</div><div class="bf-stat-val">${Number(ui.pendingRoll.tn || 0)}</div></div>
-          <div class="bf-stat"><div class="bf-stat-label">Stat</div><div class="bf-stat-val">${esc(ui.pendingRoll.stat || "none")}</div></div>
-          <div class="bf-stat"><div class="bf-stat-label">Mod</div><div class="bf-stat-val">${Number(ui.pendingRoll.mod || 0)}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Dice</div><div class="bf-stat-val">${esc(
+            ui.pendingRoll.dice
+          )}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">TN</div><div class="bf-stat-val">${Number(
+            ui.pendingRoll.tn || 0
+          )}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Stat</div><div class="bf-stat-val">${esc(
+            ui.pendingRoll.stat || "none"
+          )}</div></div>
+          <div class="bf-stat"><div class="bf-stat-label">Mod</div><div class="bf-stat-val">${Number(
+            ui.pendingRoll.mod || 0
+          )}</div></div>
         </div>
 
         <div class="bf-dim" style="margin-top:8px;">You can roll physical dice. Tap Roll Now, then type your natural result.</div>
@@ -157,7 +192,8 @@
           <button class="bf-btn ghost" id="btnCancelRoll">Cancel</button>
         </div>
       </section>
-    ` : "";
+    `
+      : "";
 
     return `
       <section class="bf-card">
@@ -189,15 +225,23 @@
     const db = loadDB();
     const activeId = getActiveSaveId();
 
-    const cards = (db.saves || []).map(s => `
+    const cards = (db.saves || [])
+      .map(
+        (s) => `
       <div class="bf-save">
         <div class="bf-save-top">
           <div>
             <div class="bf-save-title">${esc(s.title || "Save")}</div>
             <div class="bf-dim">${esc(s.updatedAt || "")}</div>
-            <div class="bf-dim">${esc((s.character && s.character.name) || "")} — HP ${(s.character && s.character.hp) || 0}/${(s.character && s.character.maxHp) || 0}</div>
+            <div class="bf-dim">${esc(
+              (s.character && s.character.name) || ""
+            )} — HP ${(s.character && s.character.hp) || 0}/${(s.character &&
+          s.character.maxHp) ||
+          0}</div>
           </div>
-          <div class="bf-pill ${s.id === activeId ? "on" : ""}">${s.id === activeId ? "ACTIVE" : ""}</div>
+          <div class="bf-pill ${s.id === activeId ? "on" : ""}">${
+          s.id === activeId ? "ACTIVE" : ""
+        }</div>
         </div>
 
         <div class="bf-save-actions">
@@ -205,7 +249,9 @@
           <button class="bf-btn danger" data-del="${esc(s.id)}">Delete</button>
         </div>
       </div>
-    `).join("");
+    `
+      )
+      .join("");
 
     return `
       <section class="bf-card">
@@ -230,27 +276,32 @@
         </div>
 
         <div class="bf-grid">
-          ${field("Name","char_name",c.name || "Eli Brogan")}
-          ${field("Background","char_bg",c.background || "Park Ranger")}
-          ${num("Grit","char_grit",c.grit || 1)}
-          ${num("Instinct","char_instinct",c.instinct || 2)}
-          ${num("Will","char_will",c.will || 1)}
-          ${num("Presence","char_presence",c.presence || 0)}
-          ${num("Discipline","char_disc",c.discipline || 0)}
+          ${field("Name", "char_name", c.name || "Eli Brogan")}
+          ${field("Background", "char_bg", c.background || "Park Ranger")}
+          ${num("Grit", "char_grit", c.grit || 1)}
+          ${num("Instinct", "char_instinct", c.instinct || 2)}
+          ${num("Will", "char_will", c.will || 1)}
+          ${num("Presence", "char_presence", c.presence || 0)}
+          ${num("Discipline", "char_disc", c.discipline || 0)}
         </div>
       </section>
     `;
   }
 
   function logView(save) {
-    const items = (save.sessionLog || []).slice(0, 60).map(e => `
+    const items = (save.sessionLog || [])
+      .slice(0, 60)
+      .map(
+        (e) => `
       <div class="bf-log">
         <div class="bf-log-top">
           <div><b>${esc(e.type || "LOG")}</b> — ${esc(e.text || "")}</div>
           <div class="bf-dim">${esc(e.at || "")}</div>
         </div>
       </div>
-    `).join("");
+    `
+      )
+      .join("");
 
     return `
       <section class="bf-card">
@@ -295,91 +346,115 @@
     return `
       <label class="bf-field">
         <div class="bf-label">${esc(label)}</div>
-        <input class="bf-input" id="${esc(id)}" type="number" value="${Number(val ?? 0)}">
+        <input class="bf-input" id="${esc(id)}" type="number" value="${Number(
+      val ?? 0
+    )}">
       </label>
     `;
   }
 
   // ---- Bindings ----
   function bindPlay() {
-    const save = getActiveSave();
     const send = document.getElementById("btnSend");
     const nudge = document.getElementById("btnNudge");
     const input = document.getElementById("playerInput");
 
-    if (send) send.onclick = async () => {
-      const text = (input.value || "").trim();
-      if (!text) return;
-      input.value = "";
-      await gmTurn({ type: "player_action", text });
-    };
+    if (send)
+      send.onclick = async () => {
+        const text = (input.value || "").trim();
+        if (!text) return;
+        input.value = "";
+        await gmTurn({ type: "player_action", text });
+      };
 
-    if (nudge) nudge.onclick = async () => {
-      await gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
-    };
+    if (nudge)
+      nudge.onclick = async () => {
+        await gmTurn({
+          type: "nudge",
+          text: "Escalate tension. Present danger. Force a meaningful decision.",
+        });
+      };
 
     const rollNow = document.getElementById("btnRollNow");
     const cancelRoll = document.getElementById("btnCancelRoll");
     const rollNat = document.getElementById("rollNat");
 
-    if (rollNow) rollNow.onclick = async () => {
-      if (!ui.pendingRoll) return;
+    if (rollNow)
+      rollNow.onclick = async () => {
+        if (!ui.pendingRoll) return;
 
-      const typed = Number((rollNat && rollNat.value || "").trim());
-      const dice = ui.pendingRoll.dice || "d20";
-      const nat =
-        Number.isFinite(typed) && typed > 0
-          ? typed
-          : (dice === "2d6" ? roll2d6() : rollD20());
+        const typed = Number((rollNat && rollNat.value || "").trim());
+        const dice = ui.pendingRoll.dice || "d20";
+        const nat =
+          Number.isFinite(typed) && typed > 0
+            ? typed
+            : dice === "2d6"
+            ? roll2d6()
+            : rollD20();
 
-      const live = getActiveSave();
-      const stat = computeStat(live, ui.pendingRoll.stat);
-      const mod = Number(ui.pendingRoll.mod || 0);
+        const live = getActiveSave();
+        const stat = computeStat(live, ui.pendingRoll.stat);
+        const mod = Number(ui.pendingRoll.mod || 0);
 
-      const wounds = Number(live.character.wounds || 0);
-      const stress = Number(live.character.stress || 0);
-      const penalty = wounds + Math.floor(stress / 3);
+        const wounds = Number(live.character.wounds || 0);
+        const stress = Number(live.character.stress || 0);
+        const penalty = wounds + Math.floor(stress / 3);
 
-      const total = nat + stat + mod - penalty;
+        const total = nat + stat + mod - penalty;
 
-      const rollPacket = {
-        nat, total, dice,
-        kind: ui.pendingRoll.kind || "Check",
-        tn: Number(ui.pendingRoll.tn || 12),
-        statName: ui.pendingRoll.stat || "none",
-        mod, stat, penalty
+        const rollPacket = {
+          nat,
+          total,
+          dice,
+          kind: ui.pendingRoll.kind || "Check",
+          tn: Number(ui.pendingRoll.tn || 12),
+          statName: ui.pendingRoll.stat || "none",
+          mod,
+          stat,
+          penalty,
+        };
+
+        ui.pendingRoll = null;
+        if (rollNat) rollNat.value = "";
+
+        pushLocalLog(
+          live,
+          "ROLL",
+          `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`,
+          rollPacket
+        );
+
+        await gmTurn({
+          type: "roll_result",
+          text: "Roll result attached.",
+          roll: rollPacket,
+        });
       };
 
-      ui.pendingRoll = null;
-      if (rollNat) rollNat.value = "";
-
-      pushLocalLog(live, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
-
-      await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
-    };
-
-    if (cancelRoll) cancelRoll.onclick = () => {
-      ui.pendingRoll = null;
-      render();
-    };
+    if (cancelRoll)
+      cancelRoll.onclick = () => {
+        ui.pendingRoll = null;
+        render();
+      };
   }
 
   function bindSaves() {
     const btnNew = document.getElementById("btnNewSave");
-    if (btnNew) btnNew.onclick = () => {
-      const db = loadDB();
-      const s = defaultSaveSlot();
-      s.title = `Save ${((db.saves || []).length) + 1}`;
-      db.saves = Array.isArray(db.saves) ? db.saves : [];
-      db.saves.push(s);
-      writeDB(db);
-      setActiveSaveId(s.id);
-      pushLocalLog(s, "SAVE", "Created new save");
-      ui.tab = "play";
-      render();
-    };
+    if (btnNew)
+      btnNew.onclick = () => {
+        const db = loadDB();
+        const s = defaultSaveSlot();
+        s.title = `Save ${((db.saves || []).length) + 1}`;
+        db.saves = Array.isArray(db.saves) ? db.saves : [];
+        db.saves.push(s);
+        writeDB(db);
+        setActiveSaveId(s.id);
+        pushLocalLog(s, "SAVE", "Created new save");
+        ui.tab = "play";
+        render();
+      };
 
-    document.querySelectorAll("[data-load]").forEach(b => {
+    document.querySelectorAll("[data-load]").forEach((b) => {
       b.onclick = () => {
         const id = b.getAttribute("data-load");
         setActiveSaveId(id);
@@ -390,11 +465,11 @@
       };
     });
 
-    document.querySelectorAll("[data-del]").forEach(b => {
+    document.querySelectorAll("[data-del]").forEach((b) => {
       b.onclick = () => {
         const id = b.getAttribute("data-del");
         const db = loadDB();
-        db.saves = (db.saves || []).filter(s => s.id !== id);
+        db.saves = (db.saves || []).filter((s) => s.id !== id);
         writeDB(db);
         if (getActiveSaveId() === id) {
           localStorage.removeItem("bf_active_save_id_v1");
@@ -429,19 +504,21 @@
   function bindLog() {
     const save = getActiveSave();
     const btn = document.getElementById("btnClearLog");
-    if (btn) btn.onclick = () => {
-      save.sessionLog = [];
-      commitActiveSave(save);
-      render();
-    };
+    if (btn)
+      btn.onclick = () => {
+        save.sessionLog = [];
+        commitActiveSave(save);
+        render();
+      };
   }
 
   function bindSettings() {
     const r = document.getElementById("btnHardReset");
-    if (r) r.onclick = () => {
-      hardResetAllSaves();
-      location.reload();
-    };
+    if (r)
+      r.onclick = () => {
+        hardResetAllSaves();
+        location.reload();
+      };
   }
 
   // ---- GM Turn (calls backend) ----
@@ -449,7 +526,9 @@
     let save = getActiveSave();
 
     save.campaign = save.campaign || {};
-    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+    save.campaign.transcript = Array.isArray(save.campaign.transcript)
+      ? save.campaign.transcript
+      : [];
     save.campaign.turn = Number(save.campaign.turn || 0);
 
     if (event.type === "player_action") {
@@ -460,7 +539,11 @@
     }
 
     if (!GM_ENDPOINT) {
-      pushLocalLog(save, "ERROR", "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html.");
+      pushLocalLog(
+        save,
+        "ERROR",
+        "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html."
+      );
       render();
       return;
     }
@@ -474,44 +557,47 @@
         campaign: {
           campaignId: save.campaign.campaignId,
           turn: save.campaign.turn,
-          transcript
+          transcript,
         },
-        worldFlags: save.worldFlags
+        worldFlags: save.worldFlags,
       },
-      event
+      event,
     };
 
     let data;
-try {
-  const res = await fetch(GM_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
 
-  const raw = await res.text();
+    try {
+      const res = await fetch(GM_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-  // show status + first part of body if anything is wrong
-  if (!res.ok) {
-    pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
-    render();
-    return;
-  }
+      const raw = await res.text();
 
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    pushLocalLog(save, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
-    render();
-    return;
-  }
-} catch (e) {
-  pushLocalLog(save, "ERROR", `GM fetch failed — ${String(e)}`);
-  render();
-  return;
-}
+      if (!res.ok) {
+        pushLocalLog(
+          save,
+          "ERROR",
+          `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`
+        );
+        render();
+        return;
+      }
+
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        pushLocalLog(
+          save,
+          "ERROR",
+          `GM returned non-JSON — ${raw.slice(0, 200)}`
+        );
+        render();
+        return;
+      }
     } catch (e) {
-      pushLocalLog(save, "ERROR", "GM call failed.");
+      pushLocalLog(save, "ERROR", `GM fetch failed — ${String(e)}`);
       render();
       return;
     }
@@ -522,7 +608,9 @@ try {
 
     // Append GM speech
     save = getActiveSave();
-    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+    save.campaign.transcript = Array.isArray(save.campaign.transcript)
+      ? save.campaign.transcript
+      : [];
     for (const line of say) save.campaign.transcript.push({ who: "gm", text: line });
 
     // Apply patch (if your gm.schema.js provides applyPatch)
@@ -540,7 +628,7 @@ try {
         tn: Number(roll.tn || 12),
         stat: roll.stat || "none",
         mod: Number(roll.mod || 0),
-        prompt: roll.prompt || "Make a roll."
+        prompt: roll.prompt || "Make a roll.",
       };
     } else {
       ui.pendingRoll = null;
@@ -555,11 +643,15 @@ try {
   // ---- Export / Import ----
   function exportActiveSave() {
     const s = getActiveSave();
-    const blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(s, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(s.title || "save").replace(/\s+/g,"_").toLowerCase()}.json`;
+    a.download = `${(s.title || "save")
+      .replace(/\s+/g, "_")
+      .toLowerCase()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -573,12 +665,16 @@ try {
       if (!file) return;
       const text = await file.text();
       let imported;
-      try { imported = JSON.parse(text); } catch { return; }
+      try {
+        imported = JSON.parse(text);
+      } catch {
+        return;
+      }
 
       imported = patchSave(imported);
       const db = loadDB();
       db.saves = Array.isArray(db.saves) ? db.saves : [];
-      const idx = db.saves.findIndex(x => x.id === imported.id);
+      const idx = db.saves.findIndex((x) => x.id === imported.id);
       if (idx >= 0) db.saves[idx] = imported;
       else db.saves.push(imported);
       writeDB(db);
@@ -594,7 +690,9 @@ try {
   boot.campaign = boot.campaign || {};
   boot.campaign.campaignId = boot.campaign.campaignId || "oregon_brogan_v1";
   boot.campaign.turn = Number(boot.campaign.turn || 0);
-  boot.campaign.transcript = Array.isArray(boot.campaign.transcript) ? boot.campaign.transcript : [];
+  boot.campaign.transcript = Array.isArray(boot.campaign.transcript)
+    ? boot.campaign.transcript
+    : [];
   commitActiveSave(boot);
 
   render();
