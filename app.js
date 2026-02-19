@@ -564,7 +564,11 @@
     for (const line of say) save.campaign.transcript.push({ who: "gm", text: line });
 
     if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
-      save = window.BF_GM.applyPatch(save, patch);
+    try {
+    save = window.BF_GM.applyPatch(save, patch);
+    } catch (e) {
+    pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
+    }
     }
 
     commitActiveSave(save);
