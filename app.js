@@ -557,23 +557,35 @@
     }
 
     const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
-    const patch = data.patch || null;
-    const roll = data.roll || null;
+const patch = data.patch || null;
+const roll = data.roll || null;
 
-    save = safeGetActiveSave();
-    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
-    for (const line of say) save.campaign.transcript.push({ who: "gm", text: line });
+save = safeGetActiveSave();
+save.campaign = save.campaign || {};
+save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
 
-    if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
-    try {
-    save = window.BF_GM.applyPatch(save, patch);
-    } catch (e) {
-    pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
-    }
-    }
+// PROOF 1: GM spoke
+pushLocalLog(save, "SYS", `SAY lines = ${say.length}`);
 
-    commitActiveSave(save);
+const beforeLen = save.campaign.transcript.length;
+for (const line of say) {
+  save.campaign.transcript.push({ who: "gm", text: line });
+}
+const afterLen = save.campaign.transcript.length;
 
+// PROOF 2: transcript actually grew
+pushLocalLog(save, "SYS", `TRANSCRIPT +${afterLen - beforeLen} (now ${afterLen})`);
+
+// If a patch exists, do NOT allow it to wipe transcript
+const transcriptKeep = save.campaign.transcript;
+
+if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
+  save = window.BF_GM.applyPatch(save, patch);
+  save.campaign = save.campaign || {};
+  if (!Array.isArray(save.campaign.transcript)) save.campaign.transcript = transcriptKeep;
+}
+
+commitActiveSave(save);
     if (roll && roll.needRoll) {
       ui.pendingRoll = {
         dice: roll.dice || "d20",
