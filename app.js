@@ -144,11 +144,19 @@
     const last = transcript.slice(-18);
 
     const lines = last.map(m => {
-    const w = (m && m.who) ? String(m.who) : "gm";
-    const who = (w === "player") ? "YOU" : "GM";
-    const text = (m && m.text != null) ? String(m.text) : "";
-    return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(text)}</div>`;
-    }).join("");
+  // Support legacy transcript formats (string entries) + future formats safely
+  const isObj = m && typeof m === "object";
+  const who = (isObj && m.who === "player") ? "YOU" : "GM";
+
+  const text =
+    (typeof m === "string") ? m :
+    (isObj && typeof m.text === "string") ? m.text :
+    (isObj && typeof m.say === "string") ? m.say :
+    (isObj && typeof m.content === "string") ? m.content :
+    "";
+
+  return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(text)}</div>`;
+}).join("");
      
     const rollPanel = ui.pendingRoll ? `
       <section class="bf-card" style="margin-top:10px;">
