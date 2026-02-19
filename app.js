@@ -144,10 +144,12 @@
     const last = transcript.slice(-18);
 
     const lines = last.map(m => {
-      const who = m.who === "player" ? "YOU" : "GM";
-      return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(m.text)}</div>`;
+    const w = (m && m.who) ? String(m.who) : "gm";
+    const who = (w === "player") ? "YOU" : "GM";
+    const text = (m && m.text != null) ? String(m.text) : "";
+    return `<div class="bf-line"><b class="bf-who">${who}:</b> ${esc(text)}</div>`;
     }).join("");
-
+     
     const rollPanel = ui.pendingRoll ? `
       <section class="bf-card" style="margin-top:10px;">
         <div class="bf-card-head">
