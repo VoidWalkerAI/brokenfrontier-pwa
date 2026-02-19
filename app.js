@@ -533,6 +533,7 @@
       });
 
       const raw = await res.text();
+      pushLocalLog(save, "NET", `RAW ← ${raw.slice(0, 200)}`);
 
       if (!res.ok) {
         pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
