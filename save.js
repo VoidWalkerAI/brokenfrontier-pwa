@@ -1,31 +1,73 @@
-/* save.js — Broken Frontier PWA Save System (bulletproof)
-   - Fixes crash: loadDB() must never return null
-   - Supports multiple saves + active save id
-   - Uses localStorage only (GitHub Pages safe)
+/* save.js — Broken Frontier Saves (self-healing)
+   - Never returns null DB
+   - Survives bad JSON, missing keys, and “null” being stored
+   - Multi-save support
 */
 
 (function () {
-  const DB_KEY = "bf_rpg_db_v1";
+  const DB_KEY = "bf_db_v1";
   const ACTIVE_KEY = "bf_active_save_id_v1";
 
   function nowISO() { return new Date().toISOString(); }
 
-  function safeJSONParse(txt) {
-    try { return JSON.parse(txt); } catch { return null; }
+  function safeJSONParse(s) {
+    try { return JSON.parse(s); } catch { return null; }
   }
 
-  function defaultDB() {
-    return {
-      version: 1,
-      createdAt: nowISO(),
-      updatedAt: nowISO(),
-      saves: []
-    };
+  function makeEmptyDB() {
+    return { saves: [], meta: { createdAt: nowISO(), updatedAt: nowISO() } };
   }
 
-  function defaultSaveSlot() {
-    // Simple ID: time + random
-    const id = `save_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  // ---- Public API ----
+  window.loadDB = function loadDB() {
+    const raw = localStorage.getItem(DB_KEY);
+
+    // Nothing saved yet
+    if (!raw) return makeEmptyDB();
+
+    // If someone accidentally stored literal "null"
+    if (raw === "null" || raw === "undefined") return makeEmptyDB();
+
+    const parsed = safeJSONParse(raw);
+
+    // If parse failed or parsed is null/primitive
+    if (!parsed || typeof parsed !== "object") return makeEmptyDB();
+
+    // Ensure shape
+    if (!Array.isArray(parsed.saves)) parsed.saves = [];
+    if (!parsed.meta || typeof parsed.meta !== "object") parsed.meta = {};
+    if (!parsed.meta.createdAt) parsed.meta.createdAt = nowISO();
+    parsed.meta.updatedAt = nowISO();
+
+    return parsed;
+  };
+
+  window.writeDB = function writeDB(db) {
+    // Self-heal shape before write
+    if (!db || typeof db !== "object") db = makeEmptyDB();
+    if (!Array.isArray(db.saves)) db.saves = [];
+    db.meta = db.meta && typeof db.meta === "object" ? db.meta : {};
+    db.meta.updatedAt = nowISO();
+    if (!db.meta.createdAt) db.meta.createdAt = nowISO();
+
+    localStorage.setItem(DB_KEY, JSON.stringify(db));
+  };
+
+  window.getActiveSaveId = function getActiveSaveId() {
+    return localStorage.getItem(ACTIVE_KEY) || "";
+  };
+
+  window.setActiveSaveId = function setActiveSaveId(id) {
+    if (!id) return;
+    localStorage.setItem(ACTIVE_KEY, String(id));
+  };
+
+  function uid() {
+    return "s_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16);
+  }
+
+  window.defaultSaveSlot = function defaultSaveSlot() {
+    const id = uid();
     return {
       id,
       title: "Save",
@@ -34,17 +76,8 @@
       character: {
         name: "Eli Brogan",
         background: "Park Ranger",
-        grit: 1,
-        instinct: 2,
-        will: 1,
-        presence: 0,
-        discipline: 0,
-        hp: 13,
-        maxHp: 13,
-        wounds: 0,
-        stress: 0,
-        exposed: false,
-        ammo: 6
+        grit: 1, instinct: 2, will: 1, presence: 0, discipline: 0,
+        hp: 13, maxHp: 13, wounds: 0, stress: 0, exposed: false, ammo: 6
       },
       campaign: {
         campaignId: "oregon_brogan_v1",
@@ -54,135 +87,78 @@
       worldFlags: {},
       sessionLog: []
     };
-  }
+  };
 
-  function writeDB(db) {
-    // Always enforce shape
-    if (!db || typeof db !== "object") db = defaultDB();
-    if (!Array.isArray(db.saves)) db.saves = [];
-    db.updatedAt = nowISO();
-
-    try {
-      localStorage.setItem(DB_KEY, JSON.stringify(db));
-    } catch {
-      // If storage fails, we still return the db object so app can run.
-    }
-    return db;
-  }
-
-  function loadDB() {
-    // IMPORTANT: must never return null
-    let raw = null;
-    try { raw = localStorage.getItem(DB_KEY); } catch { raw = null; }
-
-    if (!raw) {
-      return writeDB(defaultDB());
-    }
-
-    const parsed = safeJSONParse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      // Corrupt DB, reset
-      return writeDB(defaultDB());
-    }
-
-    // Enforce required shape
-    if (!Array.isArray(parsed.saves)) parsed.saves = [];
-    if (!parsed.version) parsed.version = 1;
-    if (!parsed.createdAt) parsed.createdAt = nowISO();
-    if (!parsed.updatedAt) parsed.updatedAt = nowISO();
-
-    return parsed;
-  }
-
-  function patchSave(s) {
-    // Make imported/old saves safe
-    if (!s || typeof s !== "object") s = defaultSaveSlot();
-    if (!s.id) s.id = `save_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  window.patchSave = function patchSave(s) {
+    // Used when importing older saves or malformed saves
+    if (!s || typeof s !== "object") s = {};
+    if (!s.id) s.id = uid();
     if (!s.title) s.title = "Save";
     if (!s.createdAt) s.createdAt = nowISO();
     s.updatedAt = nowISO();
 
-    s.character = s.character || {};
-    s.campaign = s.campaign || {};
-    s.worldFlags = s.worldFlags || {};
-    s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
+    s.character = s.character && typeof s.character === "object" ? s.character : {};
+    if (!("name" in s.character)) s.character.name = "Eli Brogan";
+    if (!("hp" in s.character)) s.character.hp = 13;
+    if (!("maxHp" in s.character)) s.character.maxHp = 13;
+    if (!("wounds" in s.character)) s.character.wounds = 0;
+    if (!("stress" in s.character)) s.character.stress = 0;
+    if (!("exposed" in s.character)) s.character.exposed = false;
+    if (!("ammo" in s.character)) s.character.ammo = 6;
 
-    s.character.name = s.character.name || "Eli Brogan";
-    s.character.hp = Number.isFinite(Number(s.character.hp)) ? Number(s.character.hp) : 13;
-    s.character.maxHp = Number.isFinite(Number(s.character.maxHp)) ? Number(s.character.maxHp) : 13;
-    s.character.wounds = Number.isFinite(Number(s.character.wounds)) ? Number(s.character.wounds) : 0;
-    s.character.stress = Number.isFinite(Number(s.character.stress)) ? Number(s.character.stress) : 0;
-    s.character.ammo = Number.isFinite(Number(s.character.ammo)) ? Number(s.character.ammo) : 6;
-
-    s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
-    s.campaign.turn = Number.isFinite(Number(s.campaign.turn)) ? Number(s.campaign.turn) : 0;
+    s.campaign = s.campaign && typeof s.campaign === "object" ? s.campaign : {};
+    if (!s.campaign.campaignId) s.campaign.campaignId = "oregon_brogan_v1";
+    if (!Number.isFinite(Number(s.campaign.turn))) s.campaign.turn = 0;
     s.campaign.transcript = Array.isArray(s.campaign.transcript) ? s.campaign.transcript : [];
 
+    s.worldFlags = s.worldFlags && typeof s.worldFlags === "object" ? s.worldFlags : {};
+    s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
+
     return s;
-  }
+  };
 
-  function getActiveSaveId() {
-    try { return localStorage.getItem(ACTIVE_KEY); } catch { return null; }
-  }
+  window.getActiveSave = function getActiveSave() {
+    const db = window.loadDB();
+    const activeId = window.getActiveSaveId();
 
-  function setActiveSaveId(id) {
-    try { localStorage.setItem(ACTIVE_KEY, String(id || "")); } catch {}
-  }
-
-  function getActiveSave() {
-    const db = loadDB();
-    const activeId = getActiveSaveId();
-
-    // If no saves exist, create one automatically
-    if (!db.saves.length) {
-      const s = defaultSaveSlot();
-      s.title = "Save 1";
-      db.saves.push(s);
-      writeDB(db);
-      setActiveSaveId(s.id);
-      return s;
+    if (activeId) {
+      const found = db.saves.find(s => s && s.id === activeId);
+      if (found) return window.patchSave(found);
     }
 
-    // If activeId missing or not found, pick first
-    let found = null;
-    if (activeId) found = db.saves.find(x => x.id === activeId) || null;
-    if (!found) {
-      setActiveSaveId(db.saves[0].id);
-      return db.saves[0];
+    // No active set or missing — pick first if exists
+    if (db.saves.length) {
+      const s0 = window.patchSave(db.saves[0]);
+      window.setActiveSaveId(s0.id);
+      return s0;
     }
 
-    return found;
-  }
+    // None exist — create one
+    const fresh = window.defaultSaveSlot();
+    fresh.title = "Save 1";
+    fresh.sessionLog.unshift({ at: nowISO(), type: "BOOT", text: "Fresh DB created (save.js self-heal)", data: null });
 
-  function commitActiveSave(save) {
-    const db = loadDB();
-    const patched = patchSave(save);
+    db.saves.push(fresh);
+    window.writeDB(db);
+    window.setActiveSaveId(fresh.id);
+    return fresh;
+  };
 
-    const idx = db.saves.findIndex(x => x.id === patched.id);
-    if (idx >= 0) db.saves[idx] = patched;
-    else db.saves.push(patched);
+  window.commitActiveSave = function commitActiveSave(save) {
+    const s = window.patchSave(save);
+    const db = window.loadDB();
 
-    writeDB(db);
-    setActiveSaveId(patched.id);
-    return patched;
-  }
+    const idx = db.saves.findIndex(x => x && x.id === s.id);
+    if (idx >= 0) db.saves[idx] = s;
+    else db.saves.push(s);
 
-  function hardResetAllSaves() {
-    try {
-      localStorage.removeItem(DB_KEY);
-      localStorage.removeItem(ACTIVE_KEY);
-    } catch {}
-  }
+    window.writeDB(db);
+    window.setActiveSaveId(s.id);
+  };
 
-  // Expose globals for app.js
-  window.loadDB = loadDB;
-  window.writeDB = writeDB;
-  window.defaultDB = defaultDB;
-  window.defaultSaveSlot = defaultSaveSlot;
-  window.patchSave = patchSave;
-  window.getActiveSaveId = getActiveSaveId;
-  window.setActiveSaveId = setActiveSaveId;
-  window.getActiveSave = getActiveSave;
-  window.commitActiveSave = commitActiveSave;
-  window.hardResetAllSaves = hardResetAllSaves;
+  window.hardResetAllSaves = function hardResetAllSaves() {
+    // Only wipe our keys, not the user’s whole browser
+    localStorage.removeItem(DB_KEY);
+    localStorage.removeItem(ACTIVE_KEY);
+  };
 })();
