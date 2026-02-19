@@ -556,16 +556,15 @@
       return;
     }
 
-    const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
+const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
 const patch = data.patch || null;
 const roll = data.roll || null;
 
 save = safeGetActiveSave();
+
+// HARDEN campaign every time (prevents null/undefined campaign after reset/import)
 save.campaign = save.campaign || {};
 save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
-
-// PROOF 1: GM spoke
-pushLocalLog(save, "SYS", `SAY lines = ${say.length}`);
 
 const beforeLen = save.campaign.transcript.length;
 for (const line of say) {
@@ -573,11 +572,8 @@ for (const line of say) {
 }
 const afterLen = save.campaign.transcript.length;
 
-// PROOF 2: transcript actually grew
+// PROOF LOG: did we actually append?
 pushLocalLog(save, "SYS", `TRANSCRIPT +${afterLen - beforeLen} (now ${afterLen})`);
-
-// If a patch exists, do NOT allow it to wipe transcript
-const transcriptKeep = save.campaign.transcript;
 
 if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
   save = window.BF_GM.applyPatch(save, patch);
