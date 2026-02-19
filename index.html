@@ -18,13 +18,18 @@
 <body>
   <div id="app"></div>
 
-  <script src="./gm.schema.js"></script>
+  <!-- Optional schema / patch rules -->
+<script src="./gm.schema.js?v=39"></script>
 
+<!-- DB + save helpers MUST load before app.js -->
+<script src="./save.js?v=39"></script>
+
+<!-- Set endpoint BEFORE app.js runs -->
 <script>
   window.BF_GM_ENDPOINT = "https://brokenfrontier-pwa.mmiller62174.workers.dev/api/turn";
 </script>
-  
-<script src="./save.js?v=38"></script>
-<script src="./app.js?v=38"></script>
+
+<!-- Main app -->
+<script src="./app.js?v=39"></script>
 </body>
 </html>
