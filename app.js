@@ -584,26 +584,32 @@
         : transcriptKeep;
     }
 
-    commitActiveSave(save);
+    // Commit AFTER patch + transcript edits
+commitActiveSave(save);
 
-    if (roll && roll.needRoll) {
-      ui.pendingRoll = {
-        dice: roll.dice || "d20",
-        kind: roll.kind || "Check",
-        tn: Number(roll.tn || 12),
-        stat: roll.stat || "none",
-        mod: Number(roll.mod || 0),
-        prompt: roll.prompt || "Make a roll."
-      };
-    } else {
-      ui.pendingRoll = null;
-    }
+// IMPORTANT: re-read from DB so render never uses a stale object
+const fresh = safeGetActiveSave();
 
-    // Render from freshly reloaded committed save
-    render();
+// Update roll UI state from the server response
+if (roll && roll.needRoll) {
+  ui.pendingRoll = {
+    dice: roll.dice || "d20",
+    kind: roll.kind || "Check",
+    tn: Number(roll.tn || 12),
+    stat: roll.stat || "none",
+    mod: Number(roll.mod || 0),
+    prompt: roll.prompt || "Make a roll."
+  };
+} else {
+  ui.pendingRoll = null;
+}
 
-    const term = document.getElementById("term");
-    if (term) term.scrollTop = term.scrollHeight;
+// Render using fresh DB state
+render();
+
+// Scroll terminal after render
+const term = document.getElementById("term");
+if (term) term.scrollTop = term.scrollHeight;
   }
 
   // ---- Export / Import ----
