@@ -600,11 +600,17 @@
 
       const raw = await res.text();
        
-      pushLocalLog(save, "NET", `RAW ← ${raw.slice(0, 200)}`);
-       try {
-       const t = payload?.save?.campaign?.transcript || [];
-       pushLocalLog(save, "NET", `PAYLOAD turn=${payload?.save?.campaign?.turn} tLen=${t.length} tLast=${String(t[t.length-1]).slice(0,120)}`);
-      } catch {}
+      pushLocalLog(save, "NET", `POST → ${GM_ENDPOINT}`);
+
+     // PROOF: what we are about to send (log BEFORE fetch)
+      try {
+      const t = payload?.save?.campaign?.transcript || [];
+      pushLocalLog(
+      save,
+      "NET",
+      `PAYLOAD turn=${payload?.save?.campaign?.turn} tLen=${t.length} tLast=${String(t[t.length - 1] || "").slice(0, 120)}`
+      );
+     } catch {}
 
       if (!res.ok) {
         pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
