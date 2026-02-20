@@ -4,16 +4,16 @@
    - Cache-first for core shell, stale-while-revalidate for everything else
 */
 
-const CACHE_NAME = "brokenfrontier-cache-v43";
+const CACHE_NAME = "brokenfrontier-cache-v45";
 
 const CORE = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./style.css?v=44",
-  "./save.js?v=44",
-  "./gm.schema.js?v=44",
-  "./app.js?v=44"
+  "./style.css?v=45",
+  "./save.js?v=45",
+  "./gm.schema.js?v=45",
+  "./app.js?v=45"
 ];
 
 self.addEventListener("install", (event) => {
