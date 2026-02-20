@@ -638,7 +638,7 @@
         pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
       }
       save.campaign = save.campaign || {};
-      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : transcriptKeep;
+      save.campaign.transcript = transcriptKeep;
     }
 
     commitActiveSave(save);
