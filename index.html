@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Broken Frontier RPG</title>
+
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0b0b0f">
+
+  <link rel="icon" type="image/png" href="./icon-192.png">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+
+  <link rel="stylesheet" href="./style.css?v=41" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- Optional schema / patch rules (safe to omit) -->
+  <script src="./gm.schema.js?v=41"></script>
+
+  <!-- DB + save helpers MUST load before app.js -->
+  <script src="./save.js?v=41"></script>
+
+  <!-- Set endpoint BEFORE app.js runs -->
+  <script>
+    window.BF_GM_ENDPOINT = "https://brokenfrontier-pwa.mmiller62174.workers.dev/api/turn";
+  </script>
+
+  <!-- Main app (single load) -->
+  <script src="./app.js?v=41"></script>
+</body>
+</html>
