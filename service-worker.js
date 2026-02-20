@@ -10,10 +10,10 @@ const CORE = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./style.css?v=43",
-  "./save.js?v=43",
-  "./gm.schema.js?v=43",
-  "./app.js?v=43"
+  "./style.css?v=44",
+  "./save.js?v=44",
+  "./gm.schema.js?v=44",
+  "./app.js?v=44"
 ];
 
 self.addEventListener("install", (event) => {
