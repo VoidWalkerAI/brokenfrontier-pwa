@@ -4,7 +4,7 @@
    - Cache-first for core shell, stale-while-revalidate for everything else
 */
 
-const CACHE_NAME = "brokenfrontier-cache-v41";
+const CACHE_NAME = "brokenfrontier-cache-v43";
 
 const CORE = [
   "./",
