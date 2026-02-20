@@ -553,7 +553,7 @@
       save.campaign.transcript.push({ who: "player", text: event.text });
       save.campaign.turn += 1;
       commitActiveSave(save);
-      render();
+      render(save);
     }
 
     if (!GM_ENDPOINT) {
@@ -616,31 +616,37 @@
     const roll = data.roll || null;
 
     // Re-read fresh save from DB
-    save = safeGetActiveSave();
-    save.campaign = save.campaign || {};
-    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+save = safeGetActiveSave();
+save.campaign = save.campaign || {};
+save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
 
-    const transcriptKeep = save.campaign.transcript.slice();
+// Keep a safety copy in case patching breaks transcript
+const transcriptKeep = save.campaign.transcript.slice();
 
-    const beforeLen = save.campaign.transcript.length;
-    for (const line of say) save.campaign.transcript.push({ who: "gm", text: String(line) });
-    const afterLen = save.campaign.transcript.length;
+const beforeLen = save.campaign.transcript.length;
+for (const line of say) {
+  save.campaign.transcript.push({ who: "gm", text: String(line) });
+}
+const afterLen = save.campaign.transcript.length;
 
-    pushLocalLog(save, "SYS", `SAY lines = ${say.length}`);
-    pushLocalLog(save, "SYS", `TRANSCRIPT +${afterLen - beforeLen} (now ${afterLen})`);
+pushLocalLog(save, "SYS", `SAY lines = ${say.length}`);
+pushLocalLog(save, "SYS", `TRANSCRIPT +${afterLen - beforeLen} (now ${afterLen})`);
 
-    if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
-      try {
-        save = window.BF_GM.applyPatch(save, patch);
-      } catch (e) {
-        // Patch errors should never brick display
-        pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
-      }
-      save.campaign = save.campaign || {};
-      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : transcriptKeep;
-    }
+if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
+  try {
+    save = window.BF_GM.applyPatch(save, patch);
+  } catch (e) {
+    // Patch errors should never brick display
+    pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
+  }
+  save.campaign = save.campaign || {};
+  save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : transcriptKeep;
+}
 
-    commitActiveSave(save);
+commitActiveSave(save);
+
+ui.tab = "play";
+render(save);
 
     // Roll UI state
     if (roll && roll.needRoll) {
@@ -655,9 +661,6 @@
     } else {
       ui.pendingRoll = null;
     }
-
-    ui.tab = "play";
-    render();
 
     const term = document.getElementById("term");
     if (term) term.scrollTop = term.scrollHeight;
@@ -706,9 +709,9 @@
   }
 
   // ---- Render ----
-  function render() {
+  function render(saveArg) {
     try {
-      const save = safeGetActiveSave();
+      const save = saveArg || safeGetActiveSave();
       const c = save.character || {};
       const hp = Number(c.hp || 0);
       const maxHp = Number(c.maxHp || 0);
