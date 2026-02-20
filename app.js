@@ -561,7 +561,17 @@
       return;
     }
 
-    const transcript = save.campaign.transcript.slice(-24);
+    const transcript = (save.campaign.transcript || [])
+      .slice(-24)
+      .map((m) => {
+    if (typeof m === "string") return m;
+    if (m && typeof m === "object") {
+      const who = String(m.who || "gm").toUpperCase();
+      const text = typeof m.text === "string" ? m.text : JSON.stringify(m);
+      return `${who}: ${text}`;
+    }
+    return String(m);
+  });
 
     const payload = {
       schema: window.BF_GM && window.BF_GM.schema ? window.BF_GM.schema : null,
@@ -574,7 +584,8 @@
         },
         worldFlags: save.worldFlags
       },
-      event
+      event,
+       roll: (event && event.roll) ? event.roll : null
     };
 
     pushLocalLog(save, "NET", `POST → ${GM_ENDPOINT}`);
