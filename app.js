@@ -15,8 +15,7 @@
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
-  const TATTOO = "BUILD 2026-02-19 — TATTOO V1.4 — Patch-safe transcript keep";
-
+  const TATTOO = "BUILD v" + (window.BF_BUILD || "??");
   // PWA register (safe)
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
