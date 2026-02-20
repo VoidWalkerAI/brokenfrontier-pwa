@@ -15,7 +15,7 @@
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
-  const TATTOO = "BUILD 2026-02-20 — TATTOO V1.4 — Terminal force-render";
+  const TATTOO = "BUILD 2026-02-20 — TATTOO V43 — Terminal force-render";
 
   // PWA register (safe)
   if ("serviceWorker" in navigator) {
