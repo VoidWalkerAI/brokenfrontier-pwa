@@ -552,8 +552,7 @@
     if (event.type === "player_action") {
       save.campaign.transcript.push({ who: "player", text: event.text });
       save.campaign.turn += 1;
-      commitActiveSave(save);
-      render(save);
+      commitActiveSave(save);      
     }
 
     if (!GM_ENDPOINT) {
