@@ -1,19 +1,19 @@
 /* Broken Frontier RPG Service Worker (GitHub Pages safe)
-   CACHE v41 — 2026-02-20
+   CACHE v46 — 2026-02-20
    - Relative paths (./) for repo subpath compatibility
    - Cache-first for core shell, stale-while-revalidate for everything else
 */
 
-const CACHE_NAME = "brokenfrontier-cache-v45";
+const CACHE_NAME = "brokenfrontier-cache-v46";
 
 const CORE = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./style.css?v=45",
-  "./save.js?v=45",
-  "./gm.schema.js?v=45",
-  "./app.js?v=45"
+  "./style.css?v=46",
+  "./save.js?v=46",
+  "./gm.schema.js?v=46",
+  "./app.js?v=46"
 ];
 
 self.addEventListener("install", (event) => {
