@@ -19,7 +19,7 @@
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
-  const TATTOO = "BUILD 2026-02-20 — TATTOO V50 — Tractor-Proof + Stomp-Seal";
+  const TATTOO = "BUILD 2026-02-20 — TATTOO V51 — Tractor-Proof + Stomp-Seal";
 
   // PWA register (safe)
   if ("serviceWorker" in navigator) {
