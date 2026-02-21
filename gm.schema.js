@@ -1,9 +1,10 @@
-// Broken Frontier — GM Schema + Helpers v1.0
+// Broken Frontier — GM Schema + Helpers v1.1
+// Adds `ask` to match GM_CONTRACT_v1 while keeping strict output discipline.
 
 window.BF_GM = window.BF_GM || {};
 
 window.BF_GM.schema = {
-  name: "bf_gm_turn_v1",
+  name: "bf_gm_turn_v1_1",
   strict: true,
   schema: {
     type: "object",
@@ -14,6 +15,12 @@ window.BF_GM.schema = {
       say: {
         type: "array",
         items: { type: "string" }
+      },
+
+      // REQUIRED by GM_CONTRACT_v1
+      // ONE clear prompt: “What do you do?”
+      ask: {
+        type: "string"
       },
 
       // Patch: minimal changes to apply to the save
