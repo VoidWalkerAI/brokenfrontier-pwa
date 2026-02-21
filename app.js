@@ -33,6 +33,9 @@
 
   const GM_ENDPOINT = String(window.BF_GM_ENDPOINT || "");
 
+  // ---- Optional Scene Engine (Path B) ----
+  const BF_SCENES = window.BF_SCENES || null; 
+
   // ---- Required deps from save.js ----
   const dbApi = window.BF_DB || null;
   if (!dbApi) {
@@ -75,44 +78,72 @@
   }
 
   // ---- DB Self-Heal ----
-  function bootstrapFreshDB() {
-    const db = loadDB();
-    db.saves = Array.isArray(db.saves) ? db.saves : [];
+function bootstrapFreshDB() {
+  const db = loadDB();
+  db.saves = Array.isArray(db.saves) ? db.saves : [];
 
-    if (!db.saves.length) {
-      const s = defaultSaveSlot();
-      s.title = "Save 1";
-      s.updatedAt = nowISO();
+  // ================================
+  // 1️⃣  NO SAVES EXIST
+  // ================================
+  if (!db.saves.length) {
+    const s = defaultSaveSlot();
+    s.title = "Save 1";
+    s.updatedAt = nowISO();
 
-      s.character = s.character || {
-        name: "Eli Brogan",
-        background: "Park Ranger",
-        grit: 1, instinct: 2, will: 1, presence: 0, discipline: 0,
-        hp: 13, maxHp: 13, wounds: 0, stress: 0, exposed: false, ammo: 6
-      };
+    s.character = s.character || {
+      name: "Eli Brogan",
+      background: "Park Ranger",
+      grit: 1, instinct: 2, will: 1, presence: 0, discipline: 0,
+      hp: 13, maxHp: 13, wounds: 0, stress: 0, exposed: false, ammo: 6
+    };
 
-      s.campaign = s.campaign || {};
-      s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
-      s.campaign.turn = Number(s.campaign.turn || 0);
-      s.campaign.transcript = Array.isArray(s.campaign.transcript) ? s.campaign.transcript : [];
+    s.campaign = s.campaign || {};
+    s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
+    s.campaign.turn = Number(s.campaign.turn || 0);
+    s.campaign.transcript = Array.isArray(s.campaign.transcript)
+      ? s.campaign.transcript
+      : [];
 
-      s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
-      s.sessionLog.unshift({ at: nowISO(), type: "BOOT", text: `Fresh DB created (${TATTOO})`, data: null });
-
-      db.saves.push(s);
-      writeDB(db);
-      setActiveSaveId(s.id);
-      return s;
+    if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
+      try { BF_SCENES.ensureCampaign(s); } catch {}
     }
 
-    const activeId = getActiveSaveId();
-    const hasActive = db.saves.some(x => x && x.id === activeId);
-    if (!hasActive) setActiveSaveId(db.saves[0].id);
+    s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
+    s.sessionLog.unshift({
+      at: nowISO(),
+      type: "BOOT",
+      text: `Fresh DB created (${TATTOO})`,
+      data: null
+    });
 
+    db.saves.push(s);
     writeDB(db);
-    return getActiveSave();
+    setActiveSaveId(s.id);
+    return s;
   }
 
+  // ================================
+  // 2️⃣  SAVES ALREADY EXIST
+  // ================================
+
+  const activeId = getActiveSaveId();
+  const hasActive = db.saves.some(x => x && x.id === activeId);
+  if (!hasActive) setActiveSaveId(db.saves[0].id);
+
+  writeDB(db);
+
+  // Ensure Path B scene fields persist on existing saves
+  if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
+    try {
+      const live = getActiveSave();
+      BF_SCENES.ensureCampaign(live);
+      commitActiveSave(live);
+    } catch {}
+  }
+
+  return getActiveSave();
+}
+    
   function safeGetActiveSave() {
     try {
       const s = getActiveSave();
