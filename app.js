@@ -104,17 +104,28 @@ function bootstrapFreshDB() {
       ? s.campaign.transcript
       : [];
 
-    if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
-      try { BF_SCENES.ensureCampaign(s); } catch {}
-    }
+    // If scenes.js is present, ensure Path B campaign fields exist
+if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
+  try { BF_SCENES.ensureCampaign(s); } catch {}
+}
 
-    s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
-    s.sessionLog.unshift({
-      at: nowISO(),
-      type: "BOOT",
-      text: `Fresh DB created (${TATTOO})`,
-      data: null
-    });
+s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
+
+// ✅ Log scenes status straight into the NEW save we’re creating
+s.sessionLog.unshift({
+  at: nowISO(),
+  type: "SCENES",
+  text: `BF_SCENES ${BF_SCENES ? "LOADED" : "MISSING"}`,
+  data: null
+});
+
+// BOOT entry (keep it)
+s.sessionLog.unshift({
+  at: nowISO(),
+  type: "BOOT",
+  text: `Fresh DB created (${TATTOO})`,
+  data: null
+});
 
     db.saves.push(s);
     writeDB(db);
