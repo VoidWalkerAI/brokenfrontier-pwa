@@ -1,10 +1,11 @@
 /* Broken Frontier RPG Service Worker (GitHub Pages safe)
-   CACHE v52 — 2026-02-21
+   CACHE v53 — DEV-FRIENDLY
    - Relative paths (./) for repo subpath compatibility
-   - Cache-first for core shell, stale-while-revalidate for everything else
+   - Network-first for HTML/JS/CSS/JSON so updates show immediately
+   - Cache-first for other assets (images, etc.)
 */
 
-const CACHE_NAME = "brokenfrontier-cache-v52";
+const CACHE_NAME = "brokenfrontier-cache-v53";
 
 const CORE = [
   "./",
@@ -13,7 +14,7 @@ const CORE = [
   "./style.css",
   "./save.js",
   "./gm.schema.js",
-  "./scenes.js", 
+  "./scenes.js",
   "./app.js"
 ];
 
@@ -33,6 +34,22 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+function isDevCritical(req) {
+  try {
+    const url = new URL(req.url);
+    const p = url.pathname.toLowerCase();
+    if (req.mode === "navigate") return true;
+    return (
+      p.endsWith(".js") ||
+      p.endsWith(".css") ||
+      p.endsWith(".json") ||
+      p.endsWith(".html")
+    );
+  } catch {
+    return req.mode === "navigate";
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -40,22 +57,29 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
 
-    // Cache-first for navigation (shell)
-    if (req.mode === "navigate") {
-      const cached = await cache.match("./index.html");
-      if (cached) {
-        // keep SW alive while updating the shell
-        event.waitUntil(
-          fetch(req).then((r) => cache.put("./index.html", r.clone())).catch(() => {})
-        );
-        return cached;
+    // ✅ Network-first for dev-critical assets
+    if (isDevCritical(req)) {
+      try {
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok) {
+          try {
+            const url = new URL(req.url);
+            if (url.origin === self.location.origin) cache.put(req, fresh.clone());
+          } catch {}
+        }
+        return fresh;
+      } catch {
+        const cached = await cache.match(req) || await cache.match("./index.html");
+        return cached || new Response("Offline", { status: 503 });
       }
-      // If not cached yet, fall through to network
     }
 
-    // Stale-while-revalidate for everything else (same-origin)
+    // Cache-first for everything else
     const cached = await cache.match(req);
-    const fetchPromise = fetch(req).then((res) => {
+    if (cached) return cached;
+
+    try {
+      const res = await fetch(req);
       try {
         const url = new URL(req.url);
         if (url.origin === self.location.origin && res && res.ok) {
@@ -63,11 +87,8 @@ self.addEventListener("fetch", (event) => {
         }
       } catch {}
       return res;
-    }).catch(() => cached);
-
-    // keep SW alive while updating the cache
-    event.waitUntil(fetchPromise.catch(() => {}));
-
-    return cached || fetchPromise;
+    } catch {
+      return new Response("Offline", { status: 503 });
+    }
   })());
 });
