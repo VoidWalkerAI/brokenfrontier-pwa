@@ -619,28 +619,34 @@ save = safeGetActiveSave();
 save.campaign = save.campaign || {};
 save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
 
-// Keep a safety copy in case patching breaks transcript
-const transcriptKeep = save.campaign.transcript.slice();
+// 1. Re-read fresh save from DB
+save = safeGetActiveSave();
+save.campaign = save.campaign || {};
+save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
 
-const beforeLen = save.campaign.transcript.length;
-for (const line of say) {
-  save.campaign.transcript.push({ who: "gm", text: String(line) });
-}
-const afterLen = save.campaign.transcript.length;
+// 2. Lock in your safe copy (which has the player's text, but no GM text yet)
+const safeTranscript = save.campaign.transcript.slice();
 
-pushLocalLog(save, "SYS", `SAY lines = ${say.length}`);
-pushLocalLog(save, "SYS", `TRANSCRIPT +${afterLen - beforeLen} (now ${afterLen})`);
-
+// 3. APPLY THE PATCH FIRST (Updates HP, Wounds, turn count, etc.)
 if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
   try {
     save = window.BF_GM.applyPatch(save, patch);
   } catch (e) {
-    // Patch errors should never brick display
     pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
   }
-  save.campaign = save.campaign || {};
-  save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : transcriptKeep;
 }
+
+// 4. RESTORE THE SHIELD (Wipes out any old transcript the AI tried to patch over)
+save.campaign = save.campaign || {};
+save.campaign.transcript = safeTranscript;
+
+// 5. PUSH THE GM TEXT LAST (Now it is guaranteed to survive)
+for (const line of say) {
+  save.campaign.transcript.push({ who: "gm", text: String(line) });
+}
+
+pushLocalLog(save, "SYS", `SAY lines = ${say.length} | Transcript updated`);
+
 
 commitActiveSave(save);
      
