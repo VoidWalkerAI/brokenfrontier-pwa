@@ -3,11 +3,15 @@
    Depends on: save.js (window.BF_DB helpers) + optional gm.schema.js (window.BF_GM)
    Endpoint: window.BF_GM_ENDPOINT = ".../api/turn"
 
-   BUILD 2026-02-19 — V1.3 — Display Lock + Single-Instance
+   BUILD 2026-02-20 — V1.5 — Tractor-Proof + Stomp-Seal
    Fixes:
    - Guaranteed visible UI even if style.css is broken (inline fallback styles)
    - Single source of truth: always render from the committed DB state
-   - GM SAY lines always append into save.campaign.transcript (auto-harden)
+   - GM SAY lines shielded from patch overwrites
+   - inFlight lock prevents double-tap race conditions
+   - pushLocalLog strictly writes to fresh DB state to prevent stomping
+   - Character edits commit fresh save (prevents transcript overwrite)
+   - UI disables actions while inFlight (prevents roll/send during fetch)
 */
 
 (function () {
@@ -15,7 +19,7 @@
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
-  const TATTOO = "BUILD 2026-02-20 — TATTOO V46 — Terminal force-render";
+  const TATTOO = "BUILD 2026-02-20 — TATTOO V48 — Tractor-Proof + Stomp-Seal";
 
   // PWA register (safe)
   if ("serviceWorker" in navigator) {
@@ -119,11 +123,13 @@
     }
   }
 
-  function pushLocalLog(save, type, text, data) {
+  function pushLocalLog(_saveIgnored, type, text, data) {
     try {
-      save.sessionLog = Array.isArray(save.sessionLog) ? save.sessionLog : [];
-      save.sessionLog.unshift({ at: nowISO(), type, text, data: data || null });
-      commitActiveSave(save);
+      // ALWAYS write logs into the latest committed save (prevents stomping transcript)
+      const fresh = safeGetActiveSave();
+      fresh.sessionLog = Array.isArray(fresh.sessionLog) ? fresh.sessionLog : [];
+      fresh.sessionLog.unshift({ at: nowISO(), type, text, data: data || null });
+      commitActiveSave(fresh);
     } catch {}
   }
 
@@ -136,12 +142,14 @@
   function roll2d6() { return (Math.floor(Math.random() * 6) + 1) + (Math.floor(Math.random() * 6) + 1); }
 
   // ---- UI State ----
-  const ui = { tab: "play", pendingRoll: null };
+  const ui = { tab: "play", pendingRoll: null, inFlight: false };
 
   function tabBtn(id, label) {
     const active = ui.tab === id ? "bf-tab-on" : "";
     return `<button class="bf-tab ${active}" data-tab="${id}">${label}</button>`;
   }
+
+  const disAttr = () => (ui.inFlight ? "disabled" : "");
 
   // ---- Inline fallback styles (so text ALWAYS shows) ----
   const FALLBACK_CSS = `
@@ -160,6 +168,7 @@
       .bf-btn:hover { border-color: rgba(255,255,255,.22); }
       .bf-btn.danger { background:#3b0a0a; border-color:#6b1010; }
       .bf-btn.ghost { background:transparent; }
+      .bf-btn[disabled] { opacity:.5; cursor:not-allowed; }
       .bf-tabs { display:flex; gap:8px; padding:10px 12px; border-bottom:1px solid rgba(255,255,255,.08); flex-wrap:wrap; }
       .bf-tab { background:transparent; color:#fff; border:1px solid rgba(255,255,255,.12); padding:6px 10px; border-radius:999px; }
       .bf-tab-on { background:#1b1b22; }
@@ -201,7 +210,8 @@
 
     const lines = last.map((m) => {
       const isObj = m && typeof m === "object";
-      const who = (isObj && m.who === "player") ? "YOU" : "GM";
+      const w = String(isObj ? m.who : "").toLowerCase();
+      const who = (w === "player" || w === "you" || w === "pc") ? "YOU" : "GM";
 
       const text =
         (typeof m === "string") ? m :
@@ -228,8 +238,8 @@
         <div class="bf-dim" style="margin-top:8px;">Roll physical dice if you want. Tap Roll Now, then type your natural result.</div>
         <div class="bf-mini" style="margin-top:10px;">
           <input class="bf-input" id="rollNat" placeholder="Enter natural roll (optional)" inputmode="numeric"/>
-          <button class="bf-btn" id="btnRollNow">Roll Now</button>
-          <button class="bf-btn ghost" id="btnCancelRoll">Cancel</button>
+          <button class="bf-btn" id="btnRollNow" ${disAttr()}>Roll Now</button>
+          <button class="bf-btn ghost" id="btnCancelRoll" ${disAttr()}>Cancel</button>
         </div>
       </section>
     ` : "";
@@ -251,8 +261,8 @@
         </div>
 
         <div class="bf-mini" style="margin-top:10px;">
-          <button class="bf-btn" id="btnSend">Send</button>
-          <button class="bf-btn ghost" id="btnNudge">Nudge GM</button>
+          <button class="bf-btn" id="btnSend" ${disAttr()}>Send</button>
+          <button class="bf-btn ghost" id="btnNudge" ${disAttr()}>Nudge GM</button>
         </div>
 
         ${rollPanel}
@@ -385,8 +395,8 @@
     const input = document.getElementById("playerInput");
     const send = document.getElementById("btnSend");
     if (send) send.onclick = async () => {
-      const live = safeGetActiveSave();
-      pushLocalLog(live, "UI", "SEND pressed");
+      if (ui.inFlight) return;
+      pushLocalLog(null, "UI", "SEND pressed");
       const text = (input && input.value || "").trim();
       if (!text) return;
       input.value = "";
@@ -395,8 +405,8 @@
 
     const nudge = document.getElementById("btnNudge");
     if (nudge) nudge.onclick = async () => {
-      const live = safeGetActiveSave();
-      pushLocalLog(live, "UI", "NUDGE pressed");
+      if (ui.inFlight) return;
+      pushLocalLog(null, "UI", "NUDGE pressed");
       await gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
     };
 
@@ -405,6 +415,7 @@
     const rollNat = document.getElementById("rollNat");
 
     if (rollNow) rollNow.onclick = async () => {
+      if (ui.inFlight) return;
       if (!ui.pendingRoll) return;
 
       const typed = Number((rollNat && rollNat.value || "").trim());
@@ -435,11 +446,12 @@
       ui.pendingRoll = null;
       if (rollNat) rollNat.value = "";
 
-      pushLocalLog(live, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
+      pushLocalLog(null, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
       await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
     };
 
     if (cancelRoll) cancelRoll.onclick = () => {
+      if (ui.inFlight) return;
       ui.pendingRoll = null;
       render();
     };
@@ -458,7 +470,7 @@
       writeDB(db);
       setActiveSaveId(s.id);
 
-      pushLocalLog(s, "SAVE", "Created new save");
+      pushLocalLog(null, "SAVE", "Created new save");
       ui.tab = "play";
       render();
     };
@@ -467,8 +479,7 @@
       b.onclick = () => {
         const id = b.getAttribute("data-load");
         setActiveSaveId(id);
-        const s = safeGetActiveSave();
-        pushLocalLog(s, "SAVE", `Loaded ${id}`);
+        pushLocalLog(null, "SAVE", `Loaded ${id}`);
         ui.tab = "play";
         render();
       };
@@ -487,25 +498,27 @@
   }
 
   function bindCharacter() {
-    const save = safeGetActiveSave();
-    const c = save.character || (save.character = {});
-    const bindInput = (id, fn) => {
+    // IMPORTANT: do NOT hold a stale save reference in closures.
+    // Always re-read fresh save on each change.
+    const bindInput = (id, setter) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.onchange = () => {
-        fn(el.value);
-        commitActiveSave(save);
+        const fresh = safeGetActiveSave();
+        const c = fresh.character || (fresh.character = {});
+        setter(el.value, c);
+        commitActiveSave(fresh);
         render();
       };
     };
 
-    bindInput("char_name", (v) => (c.name = v));
-    bindInput("char_bg", (v) => (c.background = v));
-    bindInput("char_grit", (v) => (c.grit = Number(v)));
-    bindInput("char_instinct", (v) => (c.instinct = Number(v)));
-    bindInput("char_will", (v) => (c.will = Number(v)));
-    bindInput("char_presence", (v) => (c.presence = Number(v)));
-    bindInput("char_disc", (v) => (c.discipline = Number(v)));
+    bindInput("char_name", (v, c) => (c.name = v));
+    bindInput("char_bg", (v, c) => (c.background = v));
+    bindInput("char_grit", (v, c) => (c.grit = Number(v)));
+    bindInput("char_instinct", (v, c) => (c.instinct = Number(v)));
+    bindInput("char_will", (v, c) => (c.will = Number(v)));
+    bindInput("char_presence", (v, c) => (c.presence = Number(v)));
+    bindInput("char_disc", (v, c) => (c.discipline = Number(v)));
   }
 
   function bindLog() {
@@ -529,8 +542,8 @@
       if (typeof hardResetAllSaves === "function") hardResetAllSaves();
       else localStorage.clear();
 
-      const s = bootstrapFreshDB();
-      pushLocalLog(s, "SYS", `Hard Reset executed (${from}) — DB rebuilt`);
+      bootstrapFreshDB();
+      pushLocalLog(null, "SYS", `Hard Reset executed (${from}) — DB rebuilt`);
       ui.tab = "play";
       ui.pendingRoll = null;
       render();
@@ -541,131 +554,146 @@
 
   // ---- GM Turn ----
   async function gmTurn(event) {
-    let save = safeGetActiveSave();
+    if (ui.inFlight) return; // Prevent double taps and overlapping network calls
+    ui.inFlight = true;
 
-    // Harden
-    save.campaign = save.campaign || {};
-    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
-    save.campaign.turn = Number(save.campaign.turn || 0);
-
-    // Immediately echo player text into transcript
-    if (event.type === "player_action") {
-      save.campaign.transcript.push({ who: "player", text: event.text });
-      save.campaign.turn += 1;
-      commitActiveSave(save);      
-    }
-
-    if (!GM_ENDPOINT) {
-      pushLocalLog(save, "ERROR", "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html.");
-      render();
-      return;
-    }
-
-    const transcript = save.campaign.transcript.slice(-24);
-
-    const payload = {
-      schema: window.BF_GM && window.BF_GM.schema ? window.BF_GM.schema : null,
-      save: {
-        character: save.character,
-        campaign: {
-          campaignId: save.campaign.campaignId,
-          turn: save.campaign.turn,
-          transcript
-        },
-        worldFlags: save.worldFlags
-      },
-      event
-    };
-
-    pushLocalLog(save, "NET", `POST → ${GM_ENDPOINT}`);
-
-    let data;
     try {
-      const res = await fetch(GM_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      let save = safeGetActiveSave();
 
-      const raw = await res.text();
-      pushLocalLog(save, "NET", `RAW ← ${raw.slice(0, 200)}`);
+      // Harden
+      save.campaign = save.campaign || {};
+      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+      save.campaign.turn = Number(save.campaign.turn || 0);
 
-      if (!res.ok) {
-        pushLocalLog(save, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
+      // Immediately echo player text into transcript
+      if (event.type === "player_action") {
+        save.campaign.transcript.push({ who: "player", text: event.text });
+        save.campaign.turn += 1;
+        commitActiveSave(save);
+
+        // INSTANT RENDER & SCROLL so the UI feels responsive
+        render(save);
+        const term = document.getElementById("term");
+        if (term) term.scrollTop = term.scrollHeight;
+      }
+
+      if (!GM_ENDPOINT) {
+        pushLocalLog(null, "ERROR", "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html.");
         render();
         return;
       }
 
-      try { data = JSON.parse(raw); }
-      catch {
-        pushLocalLog(save, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
-        render();
-        return;
-      }
+      const transcript = save.campaign.transcript.slice(-24);
 
-      pushLocalLog(save, "NET", `HTTP ${res.status}`);
-    } catch (e) {
-      pushLocalLog(save, "ERROR", `GM fetch failed — ${String(e)}`);
-      render();
-      return;
-    }
-
-    const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
-    const patch = data.patch || null;
-    const roll = data.roll || null;
-
-        // 1. Re-read fresh save from DB
-    save = safeGetActiveSave();
-    save.campaign = save.campaign || {};
-    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
-
-    // 2. Lock in your safe copy (which has the player's text, but no GM text yet)
-    const safeTranscript = save.campaign.transcript.slice();
-
-    // 3. APPLY THE PATCH FIRST (Updates HP, Wounds, turn count, etc.)
-    if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
-      try {
-        save = window.BF_GM.applyPatch(save, patch);
-      } catch (e) {
-        pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
-      }
-    }
-
-    // 4. RESTORE THE SHIELD (Wipes out any old transcript the AI tried to patch over)
-    save.campaign = save.campaign || {};
-    save.campaign.transcript = safeTranscript;
-
-    // 5. PUSH THE GM TEXT LAST (Now it is guaranteed to survive)
-    for (const line of say) {
-      save.campaign.transcript.push({ who: "gm", text: String(line) });
-    }
-
-    pushLocalLog(save, "SYS", `SAY lines = ${say.length} | Transcript updated`);
-
-    // 6. Commit the finalized save
-    commitActiveSave(save);
-
-    // 7. SET UI STATE BEFORE RENDERING (Fixes the ghost Roll panel)
-    if (roll && roll.needRoll) {
-      ui.pendingRoll = {
-        dice: roll.dice || "d20",
-        kind: roll.kind || "Check",
-        tn: Number(roll.tn || 12),
-        stat: roll.stat || "none",
-        mod: Number(roll.mod || 0),
-        prompt: roll.prompt || "Make a roll."
+      const payload = {
+        schema: window.BF_GM && window.BF_GM.schema ? window.BF_GM.schema : null,
+        save: {
+          character: save.character,
+          campaign: {
+            campaignId: save.campaign.campaignId,
+            turn: save.campaign.turn,
+            transcript
+          },
+          worldFlags: save.worldFlags
+        },
+        event
       };
-    } else {
-      ui.pendingRoll = null;
+
+      pushLocalLog(null, "NET", `POST → ${GM_ENDPOINT}`);
+
+      let data;
+      try {
+        const res = await fetch(GM_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const raw = await res.text();
+        pushLocalLog(null, "NET", `RAW ← ${raw.slice(0, 200)}`);
+
+        if (!res.ok) {
+          pushLocalLog(null, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
+          render();
+          return;
+        }
+
+        try { data = JSON.parse(raw); }
+        catch {
+          pushLocalLog(null, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
+          render();
+          return;
+        }
+
+        pushLocalLog(null, "NET", `HTTP ${res.status}`);
+      } catch (e) {
+        pushLocalLog(null, "ERROR", `GM fetch failed — ${String(e)}`);
+        render();
+        return;
+      }
+
+      const say = Array.isArray(data.say) ? data.say : ["(GM returned nothing.)"];
+      const patch = data.patch || null;
+      const roll = data.roll || null;
+
+      // 1. Re-read fresh save from DB
+      save = safeGetActiveSave();
+      save.campaign = save.campaign || {};
+      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+
+      // 2. Lock in your safe copy (which has the player's text, but no GM text yet)
+      const safeTranscript = save.campaign.transcript.slice();
+
+      // 3. APPLY THE PATCH FIRST (Updates HP, Wounds, etc.)
+      if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
+        try {
+          save = window.BF_GM.applyPatch(save, patch);
+        } catch (e) {
+          pushLocalLog(null, "ERROR", `Patch failed — ${String(e)}`);
+        }
+      }
+
+      // 4. RESTORE THE SHIELD (prevents patch transcript overwrites)
+      save.campaign = save.campaign || {};
+      save.campaign.transcript = safeTranscript;
+
+      // 5. PUSH THE GM TEXT LAST (Now it is guaranteed to survive)
+      for (const line of say) {
+        save.campaign.transcript.push({ who: "gm", text: String(line) });
+      }
+
+      pushLocalLog(null, "SYS", `SAY lines = ${say.length} | Transcript updated`);
+
+      // 6. Commit the finalized save
+      commitActiveSave(save);
+
+      // 7. SET UI STATE BEFORE RENDERING
+      if (roll && roll.needRoll) {
+        ui.pendingRoll = {
+          dice: roll.dice || "d20",
+          kind: roll.kind || "Check",
+          tn: Number(roll.tn || 12),
+          stat: roll.stat || "none",
+          mod: Number(roll.mod || 0),
+          prompt: roll.prompt || "Make a roll."
+        };
+      } else {
+        ui.pendingRoll = null;
+      }
+
+      // 8. Re-fetch and render
+      const fresh = safeGetActiveSave();
+      ui.tab = "play";
+      render(fresh);
+
+      const term = document.getElementById("term");
+      if (term) term.scrollTop = term.scrollHeight;
+
+    } finally {
+      ui.inFlight = false;
+      // re-render so buttons re-enable immediately
+      render();
     }
-
-    // 8. NOW RE-FETCH AND RENDER
-    const fresh = safeGetActiveSave();
-    ui.tab = "play";
-    render(fresh);
-
-    const term = document.getElementById("term");
-    if (term) term.scrollTop = term.scrollHeight;
   }
 
   // ---- Export / Import ----
@@ -692,7 +720,6 @@
       let imported;
       try { imported = JSON.parse(text); } catch { return; }
 
-      // If gm.schema.js provides patchSave, use it; otherwise accept as-is
       if (typeof window.patchSave === "function") {
         try { imported = window.patchSave(imported); } catch {}
       }
@@ -805,3 +832,4 @@
     fatalScreen(e);
   }
 })();
+```0
