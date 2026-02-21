@@ -3,7 +3,7 @@
    Depends on: save.js (window.BF_DB helpers) + optional gm.schema.js (window.BF_GM)
    Endpoint: window.BF_GM_ENDPOINT = ".../api/turn"
 
-   BUILD 2026-02-20 — V1.5 — Tractor-Proof + Stomp-Seal
+   BUILD 2026-02-21 — V1.6 — Tractor-Proof + Stomp-Seal + Scenes Probe
    Fixes:
    - Guaranteed visible UI even if style.css is broken (inline fallback styles)
    - Single source of truth: always render from the committed DB state
@@ -12,6 +12,7 @@
    - pushLocalLog strictly writes to fresh DB state to prevent stomping
    - Character edits commit fresh save (prevents transcript overwrite)
    - UI disables actions while inFlight (prevents roll/send during fetch)
+   - Clean, correct scenes.js presence logging (new saves + existing saves)
 */
 
 (function () {
@@ -19,7 +20,7 @@
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
-  const TATTOO = "BUILD 2026-02-20 — TATTOO V51 — Tractor-Proof + Stomp-Seal";
+  const TATTOO = "BUILD 2026-02-21 — TATTOO V52 — Tractor-Proof + Stomp-Seal + Scenes Probe";
 
   // PWA register (safe)
   if ("serviceWorker" in navigator) {
@@ -34,7 +35,7 @@
   const GM_ENDPOINT = String(window.BF_GM_ENDPOINT || "");
 
   // ---- Optional Scene Engine (Path B) ----
-  const BF_SCENES = window.BF_SCENES || null; 
+  const BF_SCENES = window.BF_SCENES || null;
 
   // ---- Required deps from save.js ----
   const dbApi = window.BF_DB || null;
@@ -44,10 +45,14 @@
   }
 
   const {
-    loadDB, writeDB,
-    getActiveSaveId, setActiveSaveId,
-    getActiveSave, commitActiveSave,
-    defaultSaveSlot, hardResetAllSaves
+    loadDB,
+    writeDB,
+    getActiveSaveId,
+    setActiveSaveId,
+    getActiveSave,
+    commitActiveSave,
+    defaultSaveSlot,
+    hardResetAllSaves,
   } = dbApi;
 
   // ---- Helpers ----
@@ -63,7 +68,8 @@
   const nowISO = () => new Date().toISOString();
 
   function fatalScreen(err) {
-    const msg = (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err);
+    const msg =
+      err && (err.stack || err.message) ? err.stack || err.message : String(err);
     $app.innerHTML = `
       <div style="padding:16px; color:#fff; font-family:system-ui; background:#0b0b0f; min-height:100vh;">
         <div style="padding:10px 12px; background:#3b0a0a; border:1px solid #6b1010; border-radius:10px;">
@@ -78,83 +84,113 @@
   }
 
   // ---- DB Self-Heal ----
-function bootstrapFreshDB() {
-  const db = loadDB();
-  db.saves = Array.isArray(db.saves) ? db.saves : [];
+  function bootstrapFreshDB() {
+    const db = loadDB();
+    db.saves = Array.isArray(db.saves) ? db.saves : [];
 
-  // ================================
-  // 1️⃣  NO SAVES EXIST
-  // ================================
-  if (!db.saves.length) {
-    const s = defaultSaveSlot();
-    s.title = "Save 1";
-    s.updatedAt = nowISO();
+    // ================================
+    // 1️⃣  NO SAVES EXIST
+    // ================================
+    if (!db.saves.length) {
+      const s = defaultSaveSlot();
+      s.title = "Save 1";
+      s.updatedAt = nowISO();
 
-    s.character = s.character || {
-      name: "Eli Brogan",
-      background: "Park Ranger",
-      grit: 1, instinct: 2, will: 1, presence: 0, discipline: 0,
-      hp: 13, maxHp: 13, wounds: 0, stress: 0, exposed: false, ammo: 6
-    };
+      s.character = s.character || {
+        name: "Eli Brogan",
+        background: "Park Ranger",
+        grit: 1,
+        instinct: 2,
+        will: 1,
+        presence: 0,
+        discipline: 0,
+        hp: 13,
+        maxHp: 13,
+        wounds: 0,
+        stress: 0,
+        exposed: false,
+        ammo: 6,
+      };
 
-    s.campaign = s.campaign || {};
-    s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
-    s.campaign.turn = Number(s.campaign.turn || 0);
-    s.campaign.transcript = Array.isArray(s.campaign.transcript)
-      ? s.campaign.transcript
-      : [];
+      s.campaign = s.campaign || {};
+      s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
+      s.campaign.turn = Number(s.campaign.turn || 0);
+      s.campaign.transcript = Array.isArray(s.campaign.transcript)
+        ? s.campaign.transcript
+        : [];
 
-    // If scenes.js is present, ensure Path B campaign fields exist
-if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
-  try { BF_SCENES.ensureCampaign(s); } catch {}
-}
+      // Path B ensure campaign fields (if scenes.js exists)
+      if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
+        try {
+          BF_SCENES.ensureCampaign(s);
+        } catch {}
+      }
 
-s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
+      s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
 
-// ✅ Log scenes status straight into the NEW save we’re creating
-s.sessionLog.unshift({
-  at: nowISO(),
-  type: "SCENES",
-  text: `BF_SCENES ${BF_SCENES ? "LOADED" : "MISSING"}`,
-  data: null
-});
+      // ✅ Scenes status logged into the *new* save being created
+      s.sessionLog.unshift({
+        at: nowISO(),
+        type: "SCENES",
+        text: `BF_SCENES ${BF_SCENES ? "LOADED" : "MISSING"} (new save)`,
+        data: null,
+      });
 
-// BOOT entry (keep it)
-s.sessionLog.unshift({
-  at: nowISO(),
-  type: "BOOT",
-  text: `Fresh DB created (${TATTOO})`,
-  data: null
-});
+      // BOOT entry
+      s.sessionLog.unshift({
+        at: nowISO(),
+        type: "BOOT",
+        text: `Fresh DB created (${TATTOO})`,
+        data: null,
+      });
 
-    db.saves.push(s);
+      db.saves.push(s);
+      writeDB(db);
+      setActiveSaveId(s.id);
+      return s;
+    }
+
+    // ================================
+    // 2️⃣  SAVES ALREADY EXIST
+    // ================================
+    const activeId = getActiveSaveId();
+    const hasActive = db.saves.some((x) => x && x.id === activeId);
+    if (!hasActive) setActiveSaveId(db.saves[0].id);
+
     writeDB(db);
-    setActiveSaveId(s.id);
-    return s;
-  }
 
-  // ================================
-  // 2️⃣  SAVES ALREADY EXIST
-  // ================================
-
-  const activeId = getActiveSaveId();
-  const hasActive = db.saves.some(x => x && x.id === activeId);
-  if (!hasActive) setActiveSaveId(db.saves[0].id);
-
-  writeDB(db);
-
-  // Ensure Path B scene fields persist on existing saves
-  if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
+    // Ensure Path B scene fields persist on existing saves + log status
     try {
       const live = getActiveSave();
-      BF_SCENES.ensureCampaign(live);
-      commitActiveSave(live);
+      if (live && typeof live === "object") {
+        live.sessionLog = Array.isArray(live.sessionLog) ? live.sessionLog : [];
+
+        if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
+          try {
+            BF_SCENES.ensureCampaign(live);
+          } catch {}
+          live.sessionLog.unshift({
+            at: nowISO(),
+            type: "SCENES",
+            text: "BF_SCENES LOADED (existing save)",
+            data: null,
+          });
+        } else {
+          live.sessionLog.unshift({
+            at: nowISO(),
+            type: "SCENES",
+            text: "BF_SCENES MISSING (existing save)",
+            data: null,
+          });
+        }
+
+        commitActiveSave(live);
+      }
     } catch {}
+
+    return getActiveSave();
   }
 
-  return getActiveSave();
-}
-    
   function safeGetActiveSave() {
     try {
       const s = getActiveSave();
@@ -180,8 +216,14 @@ s.sessionLog.unshift({
     const key = String(statName || "").toLowerCase();
     return Number(c[key] || 0);
   }
-  function rollD20() { return Math.floor(Math.random() * 20) + 1; }
-  function roll2d6() { return (Math.floor(Math.random() * 6) + 1) + (Math.floor(Math.random() * 6) + 1); }
+  function rollD20() {
+    return Math.floor(Math.random() * 20) + 1;
+  }
+  function roll2d6() {
+    return (
+      Math.floor(Math.random() * 6) + 1 + (Math.floor(Math.random() * 6) + 1)
+    );
+  }
 
   // ---- UI State ----
   const ui = { tab: "play", pendingRoll: null, inFlight: false };
@@ -247,25 +289,35 @@ s.sessionLog.unshift({
 
   // ---- Views ----
   function playView(save) {
-    const transcript = (save.campaign && Array.isArray(save.campaign.transcript)) ? save.campaign.transcript : [];
+    const transcript =
+      save.campaign && Array.isArray(save.campaign.transcript)
+        ? save.campaign.transcript
+        : [];
     const last = transcript.slice(-18);
 
-    const lines = last.map((m) => {
-      const isObj = m && typeof m === "object";
-      const w = String(isObj ? m.who : "").toLowerCase();
-      const who = (w === "player" || w === "you" || w === "pc") ? "YOU" : "GM";
+    const lines = last
+      .map((m) => {
+        const isObj = m && typeof m === "object";
+        const w = String(isObj ? m.who : "").toLowerCase();
+        const who = w === "player" || w === "you" || w === "pc" ? "YOU" : "GM";
 
-      const text =
-        (typeof m === "string") ? m :
-        (isObj && typeof m.text === "string") ? m.text :
-        (isObj && typeof m.say === "string") ? m.say :
-        (isObj && typeof m.content === "string") ? m.content :
-        "";
+        const text =
+          typeof m === "string"
+            ? m
+            : isObj && typeof m.text === "string"
+              ? m.text
+              : isObj && typeof m.say === "string"
+                ? m.say
+                : isObj && typeof m.content === "string"
+                  ? m.content
+                  : "";
 
-      return `<div class="bf-line" style="margin:0 0 10px 0; line-height:1.35;"><b class="bf-who" style="display:inline-block; min-width:44px; color:#b8ffcf; font-family:monospace;">${who}:</b> <span style="white-space:pre-wrap; color:#eaeaea;">${esc(text)}</span></div>`;
-    }).join("");
+        return `<div class="bf-line" style="margin:0 0 10px 0; line-height:1.35;"><b class="bf-who" style="display:inline-block; min-width:44px; color:#b8ffcf; font-family:monospace;">${who}:</b> <span style="white-space:pre-wrap; color:#eaeaea;">${esc(text)}</span></div>`;
+      })
+      .join("");
 
-    const rollPanel = ui.pendingRoll ? `
+    const rollPanel = ui.pendingRoll
+      ? `
       <section class="bf-card" style="margin-top:10px;">
         <div class="bf-card-head">
           <div class="bf-card-title">Roll Required</div>
@@ -284,7 +336,8 @@ s.sessionLog.unshift({
           <button class="bf-btn ghost" id="btnCancelRoll" ${disAttr()}>Cancel</button>
         </div>
       </section>
-    ` : "";
+    `
+      : "";
 
     return `
       <section class="bf-card">
@@ -316,7 +369,9 @@ s.sessionLog.unshift({
     const db = loadDB();
     const activeId = getActiveSaveId();
 
-    const cards = (db.saves || []).map(s => `
+    const cards = (db.saves || [])
+      .map(
+        (s) => `
       <div class="bf-save">
         <div class="bf-save-top">
           <div>
@@ -332,7 +387,9 @@ s.sessionLog.unshift({
           <button class="bf-btn danger" data-del="${esc(s.id)}">Delete</button>
         </div>
       </div>
-    `).join("");
+    `
+      )
+      .join("");
 
     return `
       <section class="bf-card">
@@ -373,14 +430,19 @@ s.sessionLog.unshift({
   }
 
   function logView(save) {
-    const items = (save.sessionLog || []).slice(0, 120).map(e => `
+    const items = (save.sessionLog || [])
+      .slice(0, 120)
+      .map(
+        (e) => `
       <div class="bf-log">
         <div class="bf-log-top">
           <div><b>${esc(e.type || "LOG")}</b> — ${esc(e.text || "")}</div>
           <div class="bf-dim">${esc(e.at || "")}</div>
         </div>
       </div>
-    `).join("");
+    `
+      )
+      .join("");
 
     return `
       <section class="bf-card">
@@ -436,88 +498,112 @@ s.sessionLog.unshift({
   function bindPlay() {
     const input = document.getElementById("playerInput");
     const send = document.getElementById("btnSend");
-    if (send) send.onclick = async () => {
-      if (ui.inFlight) return;
-      pushLocalLog(null, "UI", "SEND pressed");
-      const text = (input && input.value || "").trim();
-      if (!text) return;
-      input.value = "";
-      await gmTurn({ type: "player_action", text });
-    };
+    if (send)
+      send.onclick = async () => {
+        if (ui.inFlight) return;
+        pushLocalLog(null, "UI", "SEND pressed");
+        const text = (input && input.value) || "";
+        const t = text.trim();
+        if (!t) return;
+        input.value = "";
+        await gmTurn({ type: "player_action", text: t });
+      };
 
     const nudge = document.getElementById("btnNudge");
-    if (nudge) nudge.onclick = async () => {
-      if (ui.inFlight) return;
-      pushLocalLog(null, "UI", "NUDGE pressed");
-      await gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
-    };
+    if (nudge)
+      nudge.onclick = async () => {
+        if (ui.inFlight) return;
+        pushLocalLog(null, "UI", "NUDGE pressed");
+        await gmTurn({
+          type: "nudge",
+          text: "Escalate tension. Present danger. Force a meaningful decision.",
+        });
+      };
 
     const rollNow = document.getElementById("btnRollNow");
     const cancelRoll = document.getElementById("btnCancelRoll");
     const rollNat = document.getElementById("rollNat");
 
-    if (rollNow) rollNow.onclick = async () => {
-      if (ui.inFlight) return;
-      if (!ui.pendingRoll) return;
+    if (rollNow)
+      rollNow.onclick = async () => {
+        if (ui.inFlight) return;
+        if (!ui.pendingRoll) return;
 
-      const typed = Number((rollNat && rollNat.value || "").trim());
-      const dice = ui.pendingRoll.dice || "d20";
-      const nat =
-        Number.isFinite(typed) && typed > 0
-          ? typed
-          : (dice === "2d6" ? roll2d6() : rollD20());
+        const typed = Number((rollNat && rollNat.value) || "");
+        const dice = ui.pendingRoll.dice || "d20";
+        const nat =
+          Number.isFinite(typed) && typed > 0
+            ? typed
+            : dice === "2d6"
+              ? roll2d6()
+              : rollD20();
 
-      const live = safeGetActiveSave();
-      const stat = computeStat(live, ui.pendingRoll.stat);
-      const mod = Number(ui.pendingRoll.mod || 0);
+        const live = safeGetActiveSave();
+        const stat = computeStat(live, ui.pendingRoll.stat);
+        const mod = Number(ui.pendingRoll.mod || 0);
 
-      const wounds = Number(live.character && live.character.wounds || 0);
-      const stress = Number(live.character && live.character.stress || 0);
-      const penalty = wounds + Math.floor(stress / 3);
+        const wounds = Number((live.character && live.character.wounds) || 0);
+        const stress = Number((live.character && live.character.stress) || 0);
+        const penalty = wounds + Math.floor(stress / 3);
 
-      const total = nat + stat + mod - penalty;
+        const total = nat + stat + mod - penalty;
 
-      const rollPacket = {
-        nat, total, dice,
-        kind: ui.pendingRoll.kind || "Check",
-        tn: Number(ui.pendingRoll.tn || 12),
-        statName: ui.pendingRoll.stat || "none",
-        mod, stat, penalty
+        const rollPacket = {
+          nat,
+          total,
+          dice,
+          kind: ui.pendingRoll.kind || "Check",
+          tn: Number(ui.pendingRoll.tn || 12),
+          statName: ui.pendingRoll.stat || "none",
+          mod,
+          stat,
+          penalty,
+        };
+
+        ui.pendingRoll = null;
+        if (rollNat) rollNat.value = "";
+
+        pushLocalLog(
+          null,
+          "ROLL",
+          `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`,
+          rollPacket
+        );
+        await gmTurn({
+          type: "roll_result",
+          text: "Roll result attached.",
+          roll: rollPacket,
+        });
       };
 
-      ui.pendingRoll = null;
-      if (rollNat) rollNat.value = "";
-
-      pushLocalLog(null, "ROLL", `${rollPacket.kind} — ${dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
-      await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
-    };
-
-    if (cancelRoll) cancelRoll.onclick = () => {
-      if (ui.inFlight) return;
-      ui.pendingRoll = null;
-      render();
-    };
+    if (cancelRoll)
+      cancelRoll.onclick = () => {
+        if (ui.inFlight) return;
+        ui.pendingRoll = null;
+        render();
+      };
   }
 
   function bindSaves() {
     const btnNew = document.getElementById("btnNewSave");
-    if (btnNew) btnNew.onclick = () => {
-      const db = loadDB();
-      const s = defaultSaveSlot();
-      s.title = `Save ${((db.saves || []).length) + 1}`;
-      s.updatedAt = nowISO();
+    if (btnNew)
+      btnNew.onclick = () => {
+        const db = loadDB();
+        const s = defaultSaveSlot();
+        s.title = `Save ${((db.saves || []).length) + 1}`;
+        s.updatedAt = nowISO();
 
-      db.saves = Array.isArray(db.saves) ? db.saves : [];
-      db.saves.push(s);
-      writeDB(db);
-      setActiveSaveId(s.id);
+        db.saves = Array.isArray(db.saves) ? db.saves : [];
+        db.saves.push(s);
+        writeDB(db);
+        setActiveSaveId(s.id);
 
-      pushLocalLog(null, "SAVE", "Created new save");
-      ui.tab = "play";
-      render();
-    };
+        pushLocalLog(null, "SAVE", "Created new save");
+        ui.tab = "play";
+        render();
+      };
 
-    document.querySelectorAll("[data-load]").forEach(b => {
+    document.querySelectorAll("[data-load]").forEach((b) => {
       b.onclick = () => {
         const id = b.getAttribute("data-load");
         setActiveSaveId(id);
@@ -527,11 +613,11 @@ s.sessionLog.unshift({
       };
     });
 
-    document.querySelectorAll("[data-del]").forEach(b => {
+    document.querySelectorAll("[data-del]").forEach((b) => {
       b.onclick = () => {
         const id = b.getAttribute("data-del");
         const db = loadDB();
-        db.saves = (db.saves || []).filter(s => s.id !== id);
+        db.saves = (db.saves || []).filter((s) => s.id !== id);
         writeDB(db);
         bootstrapFreshDB();
         render();
@@ -566,11 +652,12 @@ s.sessionLog.unshift({
   function bindLog() {
     const save = safeGetActiveSave();
     const btn = document.getElementById("btnClearLog");
-    if (btn) btn.onclick = () => {
-      save.sessionLog = [];
-      commitActiveSave(save);
-      render();
-    };
+    if (btn)
+      btn.onclick = () => {
+        save.sessionLog = [];
+        commitActiveSave(save);
+        render();
+      };
   }
 
   function bindSettings() {
@@ -604,7 +691,9 @@ s.sessionLog.unshift({
 
       // Harden
       save.campaign = save.campaign || {};
-      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+      save.campaign.transcript = Array.isArray(save.campaign.transcript)
+        ? save.campaign.transcript
+        : [];
       save.campaign.turn = Number(save.campaign.turn || 0);
 
       // Immediately echo player text into transcript
@@ -620,7 +709,11 @@ s.sessionLog.unshift({
       }
 
       if (!GM_ENDPOINT) {
-        pushLocalLog(null, "ERROR", "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html.");
+        pushLocalLog(
+          null,
+          "ERROR",
+          "GM endpoint not set. Add window.BF_GM_ENDPOINT in index.html."
+        );
         render();
         return;
       }
@@ -628,17 +721,18 @@ s.sessionLog.unshift({
       const transcript = save.campaign.transcript.slice(-24);
 
       const payload = {
-        schema: window.BF_GM && window.BF_GM.schema ? window.BF_GM.schema : null,
+        schema:
+          window.BF_GM && window.BF_GM.schema ? window.BF_GM.schema : null,
         save: {
           character: save.character,
           campaign: {
             campaignId: save.campaign.campaignId,
             turn: save.campaign.turn,
-            transcript
+            transcript,
           },
-          worldFlags: save.worldFlags
+          worldFlags: save.worldFlags,
         },
-        event
+        event,
       };
 
       pushLocalLog(null, "NET", `POST → ${GM_ENDPOINT}`);
@@ -648,21 +742,30 @@ s.sessionLog.unshift({
         const res = await fetch(GM_ENDPOINT, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
 
         const raw = await res.text();
         pushLocalLog(null, "NET", `RAW ← ${raw.slice(0, 200)}`);
 
         if (!res.ok) {
-          pushLocalLog(null, "ERROR", `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`);
+          pushLocalLog(
+            null,
+            "ERROR",
+            `GM HTTP ${res.status} ${res.statusText} — ${raw.slice(0, 200)}`
+          );
           render();
           return;
         }
 
-        try { data = JSON.parse(raw); }
-        catch {
-          pushLocalLog(null, "ERROR", `GM returned non-JSON — ${raw.slice(0, 200)}`);
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          pushLocalLog(
+            null,
+            "ERROR",
+            `GM returned non-JSON — ${raw.slice(0, 200)}`
+          );
           render();
           return;
         }
@@ -681,12 +784,14 @@ s.sessionLog.unshift({
       // 1. Re-read fresh save from DB
       save = safeGetActiveSave();
       save.campaign = save.campaign || {};
-      save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+      save.campaign.transcript = Array.isArray(save.campaign.transcript)
+        ? save.campaign.transcript
+        : [];
 
-      // 2. Lock in your safe copy (which has the player's text, but no GM text yet)
+      // 2. Lock in safe copy (player text survives)
       const safeTranscript = save.campaign.transcript.slice();
 
-      // 3. APPLY THE PATCH FIRST (Updates HP, Wounds, etc.)
+      // 3. APPLY PATCH FIRST
       if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
         try {
           save = window.BF_GM.applyPatch(save, patch);
@@ -695,21 +800,21 @@ s.sessionLog.unshift({
         }
       }
 
-      // 4. RESTORE THE SHIELD (prevents patch transcript overwrites)
+      // 4. RESTORE TRANSCRIPT SHIELD
       save.campaign = save.campaign || {};
       save.campaign.transcript = safeTranscript;
 
-      // 5. PUSH THE GM TEXT LAST (Now it is guaranteed to survive)
+      // 5. PUSH GM SAY LINES LAST
       for (const line of say) {
         save.campaign.transcript.push({ who: "gm", text: String(line) });
       }
 
       pushLocalLog(null, "SYS", `SAY lines = ${say.length} | Transcript updated`);
 
-      // 6. Commit the finalized save
+      // 6. Commit finalized save
       commitActiveSave(save);
 
-      // 7. SET UI STATE BEFORE RENDERING
+      // 7. Set UI pending roll
       if (roll && roll.needRoll) {
         ui.pendingRoll = {
           dice: roll.dice || "d20",
@@ -717,31 +822,31 @@ s.sessionLog.unshift({
           tn: Number(roll.tn || 12),
           stat: roll.stat || "none",
           mod: Number(roll.mod || 0),
-          prompt: roll.prompt || "Make a roll."
+          prompt: roll.prompt || "Make a roll.",
         };
       } else {
         ui.pendingRoll = null;
       }
 
-      // 8. Re-fetch and render
+      // 8. Render fresh
       const fresh = safeGetActiveSave();
       ui.tab = "play";
       render(fresh);
 
       const term = document.getElementById("term");
       if (term) term.scrollTop = term.scrollHeight;
-
     } finally {
       ui.inFlight = false;
-      // re-render so buttons re-enable immediately
-      render();
+      render(); // re-enable buttons
     }
   }
 
   // ---- Export / Import ----
   function exportActiveSave() {
     const s = safeGetActiveSave();
-    const blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(s, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -760,15 +865,21 @@ s.sessionLog.unshift({
 
       const text = await file.text();
       let imported;
-      try { imported = JSON.parse(text); } catch { return; }
+      try {
+        imported = JSON.parse(text);
+      } catch {
+        return;
+      }
 
       if (typeof window.patchSave === "function") {
-        try { imported = window.patchSave(imported); } catch {}
+        try {
+          imported = window.patchSave(imported);
+        } catch {}
       }
 
       const db = loadDB();
       db.saves = Array.isArray(db.saves) ? db.saves : [];
-      const idx = db.saves.findIndex(x => x.id === imported.id);
+      const idx = db.saves.findIndex((x) => x.id === imported.id);
       if (idx >= 0) db.saves[idx] = imported;
       else db.saves.push(imported);
 
@@ -792,14 +903,17 @@ s.sessionLog.unshift({
 
       const campaignId = (save.campaign && save.campaign.campaignId) || "—";
       const turn = Number((save.campaign && save.campaign.turn) || 0);
-      const tLen = (save.campaign && Array.isArray(save.campaign.transcript)) ? save.campaign.transcript.length : 0;
+      const tLen =
+        save.campaign && Array.isArray(save.campaign.transcript)
+          ? save.campaign.transcript.length
+          : 0;
       const activeId = getActiveSaveId ? getActiveSaveId() : "—";
 
       $app.innerHTML = `
         ${FALLBACK_CSS}
         <div class="bf-shell">
           <div class="bf-topbar">
-            ${esc(TATTOO)} • Endpoint: ${GM_ENDPOINT ? "SET" : "NOT SET"} • Save: ${esc(activeId)} • T:${tLen}
+            ${esc(TATTOO)} • Endpoint: ${GM_ENDPOINT ? "SET" : "NOT SET"} • Save: ${esc(activeId)} • T:${tLen} • Scenes: ${BF_SCENES ? "YES" : "NO"}
           </div>
 
           <header class="bf-header">
@@ -843,8 +957,11 @@ s.sessionLog.unshift({
         </div>
       `;
 
-      document.querySelectorAll("[data-tab]").forEach(btn => {
-        btn.onclick = () => { ui.tab = btn.getAttribute("data-tab"); render(); };
+      document.querySelectorAll("[data-tab]").forEach((btn) => {
+        btn.onclick = () => {
+          ui.tab = btn.getAttribute("data-tab");
+          render();
+        };
       });
 
       const ex = document.getElementById("exportBtn");
@@ -860,7 +977,6 @@ s.sessionLog.unshift({
       if (ui.tab === "character") bindCharacter();
       if (ui.tab === "log") bindLog();
       if (ui.tab === "settings") bindSettings();
-
     } catch (e) {
       fatalScreen(e);
     }
@@ -874,4 +990,3 @@ s.sessionLog.unshift({
     fatalScreen(e);
   }
 })();
-
