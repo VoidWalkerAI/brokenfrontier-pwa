@@ -1,10 +1,10 @@
 /* Broken Frontier RPG Service Worker (GitHub Pages safe)
-   CACHE v51 — 2026-02-20
+   CACHE v52 — 2026-02-21
    - Relative paths (./) for repo subpath compatibility
    - Cache-first for core shell, stale-while-revalidate for everything else
 */
 
-const CACHE_NAME = "brokenfrontier-cache-v51";
+const CACHE_NAME = "brokenfrontier-cache-v52";
 
 const CORE = [
   "./",
