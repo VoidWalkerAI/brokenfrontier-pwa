@@ -1,11 +1,11 @@
 /* Broken Frontier RPG Service Worker (GitHub Pages safe)
-   CACHE v53 — DEV-FRIENDLY
+   CACHE v54 — DEV-FRIENDLY
    - Relative paths (./) for repo subpath compatibility
    - Network-first for HTML/JS/CSS/JSON so updates show immediately
    - Cache-first for other assets (images, etc.)
 */
 
-const CACHE_NAME = "brokenfrontier-cache-v53";
+const CACHE_NAME = "brokenfrontier-cache-v54";
 
 const CORE = [
   "./",
