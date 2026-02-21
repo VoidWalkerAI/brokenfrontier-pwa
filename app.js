@@ -614,49 +614,38 @@
     const patch = data.patch || null;
     const roll = data.roll || null;
 
-    // Re-read fresh save from DB
-save = safeGetActiveSave();
-save.campaign = save.campaign || {};
-save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+        // 1. Re-read fresh save from DB
+    save = safeGetActiveSave();
+    save.campaign = save.campaign || {};
+    save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
 
-// 1. Re-read fresh save from DB
-save = safeGetActiveSave();
-save.campaign = save.campaign || {};
-save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
+    // 2. Lock in your safe copy (which has the player's text, but no GM text yet)
+    const safeTranscript = save.campaign.transcript.slice();
 
-// 2. Lock in your safe copy (which has the player's text, but no GM text yet)
-const safeTranscript = save.campaign.transcript.slice();
+    // 3. APPLY THE PATCH FIRST (Updates HP, Wounds, turn count, etc.)
+    if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
+      try {
+        save = window.BF_GM.applyPatch(save, patch);
+      } catch (e) {
+        pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
+      }
+    }
 
-// 3. APPLY THE PATCH FIRST (Updates HP, Wounds, turn count, etc.)
-if (patch && window.BF_GM && typeof window.BF_GM.applyPatch === "function") {
-  try {
-    save = window.BF_GM.applyPatch(save, patch);
-  } catch (e) {
-    pushLocalLog(save, "ERROR", `Patch failed — ${String(e)}`);
-  }
-}
+    // 4. RESTORE THE SHIELD (Wipes out any old transcript the AI tried to patch over)
+    save.campaign = save.campaign || {};
+    save.campaign.transcript = safeTranscript;
 
-// 4. RESTORE THE SHIELD (Wipes out any old transcript the AI tried to patch over)
-save.campaign = save.campaign || {};
-save.campaign.transcript = safeTranscript;
+    // 5. PUSH THE GM TEXT LAST (Now it is guaranteed to survive)
+    for (const line of say) {
+      save.campaign.transcript.push({ who: "gm", text: String(line) });
+    }
 
-// 5. PUSH THE GM TEXT LAST (Now it is guaranteed to survive)
-for (const line of say) {
-  save.campaign.transcript.push({ who: "gm", text: String(line) });
-}
+    pushLocalLog(save, "SYS", `SAY lines = ${say.length} | Transcript updated`);
 
-pushLocalLog(save, "SYS", `SAY lines = ${say.length} | Transcript updated`);
+    // 6. Commit the finalized save
+    commitActiveSave(save);
 
-
-commitActiveSave(save);
-     
-// Immediately re-fetch from DB after commit
-const fresh = safeGetActiveSave();
-
-ui.tab = "play";
-render(fresh);
-
-    // Roll UI state
+    // 7. SET UI STATE BEFORE RENDERING (Fixes the ghost Roll panel)
     if (roll && roll.needRoll) {
       ui.pendingRoll = {
         dice: roll.dice || "d20",
@@ -669,6 +658,11 @@ render(fresh);
     } else {
       ui.pendingRoll = null;
     }
+
+    // 8. NOW RE-FETCH AND RENDER
+    const fresh = safeGetActiveSave();
+    ui.tab = "play";
+    render(fresh);
 
     const term = document.getElementById("term");
     if (term) term.scrollTop = term.scrollHeight;
