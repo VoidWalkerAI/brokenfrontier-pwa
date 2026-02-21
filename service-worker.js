@@ -10,15 +10,15 @@ const CORE = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./style.css?v=48",
-  "./save.js?v=48",
-  "./gm.schema.js?v=48",
-  "./app.js?v=48"
+  "./style.css",
+  "./save.js",
+  "./gm.schema.js",
+  "./app.js"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE)).catch(() => {})
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE))
   );
   self.skipWaiting();
 });
@@ -43,16 +43,18 @@ self.addEventListener("fetch", (event) => {
     if (req.mode === "navigate") {
       const cached = await cache.match("./index.html");
       if (cached) {
-        // Update in background
-        event.waitUntil(fetch(req).then((r) => cache.put("./index.html", r.clone())).catch(() => {}));
+        // keep SW alive while updating the shell
+        event.waitUntil(
+          fetch(req).then((r) => cache.put("./index.html", r.clone())).catch(() => {})
+        );
         return cached;
       }
+      // If not cached yet, fall through to network
     }
 
     // Stale-while-revalidate for everything else (same-origin)
     const cached = await cache.match(req);
     const fetchPromise = fetch(req).then((res) => {
-      // Only cache successful same-origin responses
       try {
         const url = new URL(req.url);
         if (url.origin === self.location.origin && res && res.ok) {
@@ -61,6 +63,9 @@ self.addEventListener("fetch", (event) => {
       } catch {}
       return res;
     }).catch(() => cached);
+
+    // keep SW alive while updating the cache
+    event.waitUntil(fetchPromise.catch(() => {}));
 
     return cached || fetchPromise;
   })());
