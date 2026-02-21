@@ -13,6 +13,7 @@ const CORE = [
   "./style.css",
   "./save.js",
   "./gm.schema.js",
+  "./scenes.js", 
   "./app.js"
 ];
 
