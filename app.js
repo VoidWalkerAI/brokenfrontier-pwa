@@ -409,6 +409,9 @@
 
     ui.pendingRoll = null;
     pushLocalLog(null, "ROLL", `${rollPacket.kind} — ${rollPacket.dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
+    pushLocalLog(null, "YOU", `[ I rolled a ${nat} on the d20 ]`);
+    if (typeof render === "function") render();
+     
     await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
   }
 
