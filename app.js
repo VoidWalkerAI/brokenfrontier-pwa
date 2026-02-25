@@ -75,11 +75,16 @@
           const final = randInt(1, 20);
           if (slotEl) slotEl.textContent = String(final);
           if (messageEl) messageEl.textContent = `The dark answers: ${final}`;
-          resolve(final);
+          
+          // THE FIX: Pause for 1.5 seconds before resolving so you can read it!
+          setTimeout(() => {
+            resolve(final);
+          }, 1500);
         }
       }, tick);
     });
-  }
+}
+
 
   // ---- DB Self-Heal ----
   function bootstrapFreshDB() {
