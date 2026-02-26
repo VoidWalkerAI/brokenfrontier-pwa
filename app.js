@@ -61,30 +61,39 @@
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
-  async function summonD20({ slotEl, messageEl, minMs = 450, maxMs = 1100 } = {}) {
-    const totalMs = randInt(minMs, maxMs);
-    const start = performance.now();
-    const tick = 35; 
-    return await new Promise((resolve) => {
-      const timer = setInterval(() => {
-        const now = performance.now();
-        const n = randInt(1, 20);
-        if (slotEl) slotEl.textContent = String(n);
-        
-        if (now - start >= totalMs) {
-          clearInterval(timer);
-          const final = randInt(1, 20);
-          if (slotEl) slotEl.textContent = String(final);
-          if (messageEl) messageEl.textContent = `The dark answers: ${final}`;
-          
-          // THE FIX: Pause for 1.5 seconds before resolving so you can read it!
-          setTimeout(() => {
-            resolve(final);
-          }, 1500);
-        }
-      }, tick);
-    });
+  async function summonD20({ slotEl, messageEl, minMs = 500, maxMs = 1200, outcome = null } = {}) {
+  const totalMs = randInt(minMs, maxMs);
+  const start = performance.now();
+
+  if (messageEl) {
+    messageEl.textContent = "Awaiting your Fate…";
   }
+
+  return await new Promise((resolve) => {
+    const timer = setInterval(() => {
+      const n = randInt(1, 20);
+      if (slotEl) slotEl.textContent = String(n);
+
+      if (performance.now() - start >= totalMs) {
+        clearInterval(timer);
+
+        const final = randInt(1, 20);
+        if (slotEl) slotEl.textContent = String(final);
+
+        // Optional tonal reinforcement
+        let suffix = "";
+        if (outcome === "success") suffix = " — The Fates favor you.";
+        if (outcome === "failure") suffix = " — The Fates turn away.";
+
+        if (messageEl) {
+          messageEl.textContent = `Your Fate has been cast: ${final}${suffix}`;
+        }
+
+        setTimeout(() => resolve(final), 1200);
+      }
+    }, 35);
+  });
+}
 
   // ---- DB Self-Heal ----
   function bootstrapFreshDB() {
