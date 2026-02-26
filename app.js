@@ -10,7 +10,8 @@
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
-  const TATTOO = "BUILD 2026-02-21 — TATTOO V55 — UX Polish (Ask the Dark)";
+  // ASH PATCH A: Running proof stamp
+  const TATTOO = `IPC ENGINE • BUILD 2026-02-26 • V1.8 • RUNNING PROOF ${new Date().toISOString()}`;
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -83,8 +84,7 @@
         }
       }, tick);
     });
-}
-
+  }
 
   // ---- DB Self-Heal ----
   function bootstrapFreshDB() {
@@ -111,6 +111,10 @@
         try { BF_SCENES.ensureCampaign(s); } catch {}
       }
 
+      // ASH PATCH C1: IPC SETTINGS (NEW SAVE)
+      s.settings = (s.settings && typeof s.settings === "object") ? s.settings : {};
+      if (typeof s.settings.letBonesDecide !== "boolean") s.settings.letBonesDecide = false;
+
       s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
       s.sessionLog.unshift({ at: nowISO(), type: "SCENES", text: `BF_SCENES ${BF_SCENES ? "LOADED" : "MISSING"} (new save)`, data: null });
       s.sessionLog.unshift({ at: nowISO(), type: "BOOT", text: `Fresh DB created (${TATTOO})`, data: null });
@@ -124,6 +128,23 @@
     const activeId = getActiveSaveId();
     const hasActive = db.saves.some((x) => x && x.id === activeId);
     if (!hasActive) setActiveSaveId(db.saves[0].id);
+
+    // ASH PATCH C2: IPC MIGRATION - heal older saves (safe, no drama)
+    let changed = false;
+    for (const s of db.saves) {
+      if (!s || typeof s !== "object") continue;
+
+      s.character = (s.character && typeof s.character === "object") ? s.character : {};
+      s.campaign  = (s.campaign  && typeof s.campaign  === "object") ? s.campaign  : {};
+      s.worldFlags = (s.worldFlags && typeof s.worldFlags === "object") ? s.worldFlags : {};
+      s.campaign.transcript = Array.isArray(s.campaign.transcript) ? s.campaign.transcript : [];
+      s.campaign.turn = Number(s.campaign.turn || 0);
+      s.campaign.campaignId = String(s.campaign.campaignId || "oregon_brogan_v1");
+
+      s.settings = (s.settings && typeof s.settings === "object") ? s.settings : {};
+      if (typeof s.settings.letBonesDecide !== "boolean") { s.settings.letBonesDecide = false; changed = true; }
+    }
+    if (changed) writeDB(db);
 
     writeDB(db);
     return getActiveSave();
@@ -153,7 +174,8 @@
     return Number(c[String(statName || "").toLowerCase()] || 0);
   }
 
-  const ui = { tab: "play", pendingRoll: null, inFlight: false };
+  // ASH PATCH B: Upgrade ui to include autoToken
+  const ui = { tab: "play", pendingRoll: null, inFlight: false, autoToken: 0 };
 
   function tabBtn(id, label) {
     const active = ui.tab === id ? "bf-tab-on" : "";
@@ -273,7 +295,7 @@
     `;
   }
 
-  function savesView() { /* omitted for brevity, keeping exact layout from your file */
+  function savesView() {
     const db = loadDB();
     const activeId = getActiveSaveId();
     const cards = (db.saves || []).map((s) => `
@@ -336,11 +358,35 @@
     `;
   }
 
+  // ASH PATCH D: Replace settingsView() with IPC Ritual Settings toggle
   function settingsView() {
+    const s = safeGetActiveSave();
+    s.settings = (s.settings && typeof s.settings === "object") ? s.settings : {};
+    const checked = s.settings.letBonesDecide ? "checked" : "";
+
     return `
       <section class="bf-card">
         <div class="bf-card-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <div><div class="bf-card-title">Settings</div><div class="bf-dim">GM Endpoint: <b>${GM_ENDPOINT ? "SET" : "NOT SET"}</b></div></div>
+          <div>
+            <div class="bf-card-title">Settings</div>
+            <div class="bf-dim">GM Endpoint: <b>${GM_ENDPOINT ? "SET" : "NOT SET"}</b></div>
+          </div>
+        </div>
+
+        <div style="margin-top:12px; padding:12px; background:#0b0b0f; border:1px solid rgba(255,255,255,.08); border-radius:14px;">
+          <div style="font-weight:800; margin-bottom:8px;">Ritual Settings</div>
+
+          <label style="display:flex; gap:10px; align-items:center; cursor:pointer;">
+            <input type="checkbox" id="toggleBones" ${checked}>
+            <span><b>Let the Bones Decide</b> (Auto-Invocation)</span>
+          </label>
+
+          <div class="bf-dim" style="font-size:12px; margin-top:6px;">
+            When ON: after a short grace period, IPC will roll automatically unless you roll manually or press Ask the Dark.
+          </div>
+
+          <hr style="opacity:0.1; margin:15px 0;">
+
           <button class="bf-btn danger" id="btnHardReset">Hard Reset All</button>
         </div>
       </section>
@@ -364,9 +410,11 @@
       gmTurn({ type: "nudge", text: "Escalate tension. Present danger. Force a meaningful decision." });
     });
 
-    // UX Upgrade: Ask The Dark Drumroll
+    // ASH PATCH G: Cancel pending auto-roll when Ask the Dark is pressed
     document.getElementById("btnAskDark")?.addEventListener("click", async () => {
       if (ui.inFlight || !ui.pendingRoll) return;
+      
+      ui.autoToken++; // cancel pending auto-invocation
       
       document.querySelectorAll('button, input, textarea').forEach(el => el.disabled = true);
       
@@ -378,9 +426,12 @@
       processRoll(nat);
     });
 
-    // UX Upgrade: Manual Roll Validation
+    // ASH PATCH G: Cancel pending auto-roll when manual roll is submitted
     document.getElementById("btnRollNow")?.addEventListener("click", () => {
       if (ui.inFlight || !ui.pendingRoll) return;
+      
+      ui.autoToken++; // cancel pending auto-invocation
+      
       const typed = Number(document.getElementById("rollNat")?.value || "");
       if (!Number.isFinite(typed) || typed < 1 || typed > 20) {
         alert("Please enter a valid natural roll between 1 and 20.");
@@ -421,6 +472,34 @@
     await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
   }
 
+  // ASH PATCH F: Add the Auto-Invocation function (Tier 3)
+  async function handleAutoInvocation() {
+    const save = safeGetActiveSave();
+    const enabled = !!(save.settings && save.settings.letBonesDecide);
+    if (!enabled) return;
+    if (!ui.pendingRoll) return;
+    if (ui.inFlight) return;
+
+    const myToken = ++ui.autoToken;
+
+    // Grace window so the player can type a roll or press Ask the Dark
+    await new Promise(r => setTimeout(r, 1200));
+
+    if (myToken !== ui.autoToken) return;
+    if (!ui.pendingRoll) return;
+    if (ui.inFlight) return;
+
+    // Mirror Ask the Dark behavior
+    document.querySelectorAll("button, input, textarea").forEach(el => el.disabled = true);
+
+    const nat = await summonD20({
+      slotEl: document.getElementById("rollSpinnerNumber"),
+      messageEl: document.getElementById("rollSpinnerMessage")
+    });
+
+    processRoll(nat);
+  }
+
   function bindSaves() {
     document.getElementById("btnNewSave")?.addEventListener("click", () => {
       const db = loadDB();
@@ -455,7 +534,19 @@
   }
 
   function bindLog() { document.getElementById("btnClearLog")?.addEventListener("click", () => { const s = safeGetActiveSave(); s.sessionLog = []; commitActiveSave(s); render(); }); }
-  function bindSettings() { document.getElementById("btnHardReset")?.addEventListener("click", () => hardResetAndRebuild("settings")); }
+  
+  // ASH PATCH E: Upgrade bindSettings() to save the toggle
+  function bindSettings() {
+    document.getElementById("toggleBones")?.addEventListener("change", (e) => {
+      const fresh = safeGetActiveSave();
+      fresh.settings = (fresh.settings && typeof fresh.settings === "object") ? fresh.settings : {};
+      fresh.settings.letBonesDecide = !!e.target.checked;
+      commitActiveSave(fresh);
+      pushLocalLog(null, "SETTINGS", `Let the Bones Decide = ${fresh.settings.letBonesDecide}`, null);
+    });
+
+    document.getElementById("btnHardReset")?.addEventListener("click", () => hardResetAndRebuild("settings"));
+  }
 
   function hardResetAndRebuild(from) {
     if (typeof hardResetAllSaves === "function") hardResetAllSaves(); else localStorage.clear();
@@ -518,6 +609,9 @@
       render(safeGetActiveSave());
       const term = document.getElementById("term");
       if (term) term.scrollTop = term.scrollHeight;
+      
+      // ASH PATCH H: Fire auto-invocation after GM sets pendingRoll
+      handleAutoInvocation();
     }
   }
 
