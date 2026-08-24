@@ -1,11 +1,17 @@
-/* Broken Frontier RPG Service Worker (GitHub Pages safe)
-   CACHE v54 — DEV-FRIENDLY
-   - Relative paths (./) for repo subpath compatibility
-   - Network-first for HTML/JS/CSS/JSON so updates show immediately
-   - Cache-first for other assets (images, etc.)
-*/
+/* ============================================================
+   🪨 CAVECODE — LOCKED BLOCK
+   BROKEN FRONTIER RPG — SERVICE WORKER v55
 
-const CACHE_NAME = "brokenfrontier-cache-v54";
+   PURPOSE:
+   Keep the PWA installable/offline-friendly while preferring fresh
+   HTML/JS/CSS/JSON during development and campaign testing.
+
+   RUNTIME REPAIR 003:
+   Legacy scenes.js is removed from the core cache because campaigns
+   now load through the private IPC Worker rather than browser scenes.
+   ============================================================ */
+
+const CACHE_NAME = "brokenfrontier-cache-v55";
 
 const CORE = [
   "./",
@@ -14,14 +20,11 @@ const CORE = [
   "./style.css",
   "./save.js",
   "./gm.schema.js",
-  "./scenes.js",
-  "./app.js"
+  "./app.js",
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE))
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE)));
   self.skipWaiting();
 });
 
@@ -39,12 +42,7 @@ function isDevCritical(req) {
     const url = new URL(req.url);
     const p = url.pathname.toLowerCase();
     if (req.mode === "navigate") return true;
-    return (
-      p.endsWith(".js") ||
-      p.endsWith(".css") ||
-      p.endsWith(".json") ||
-      p.endsWith(".html")
-    );
+    return p.endsWith(".js") || p.endsWith(".css") || p.endsWith(".json") || p.endsWith(".html");
   } catch {
     return req.mode === "navigate";
   }
@@ -57,7 +55,6 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
 
-    // ✅ Network-first for dev-critical assets
     if (isDevCritical(req)) {
       try {
         const fresh = await fetch(req);
@@ -74,7 +71,6 @@ self.addEventListener("fetch", (event) => {
       }
     }
 
-    // Cache-first for everything else
     const cached = await cache.match(req);
     if (cached) return cached;
 
@@ -82,9 +78,7 @@ self.addEventListener("fetch", (event) => {
       const res = await fetch(req);
       try {
         const url = new URL(req.url);
-        if (url.origin === self.location.origin && res && res.ok) {
-          cache.put(req, res.clone());
-        }
+        if (url.origin === self.location.origin && res && res.ok) cache.put(req, res.clone());
       } catch {}
       return res;
     } catch {

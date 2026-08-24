@@ -1,17 +1,39 @@
-/* app.js — Broken Frontier RPG (AI-GM Terminal + Saves)
-   Frontend: GitHub Pages
-   Depends on: save.js (window.BF_DB helpers) + optional gm.schema.js (window.BF_GM)
-   Endpoint: window.BF_GM_ENDPOINT = ".../api/turn"
+/* ============================================================
+   🪨 CAVECODE — LOCKED BLOCK
+   BROKEN FRONTIER RPG — PLAYER RUNTIME
 
-   BUILD 2026-02-21 — V1.7 — UX Polish (Ask the Dark + Conjuring + Auto-Start)
-*/
+   ROLE:
+   Player-facing PWA runtime for character interaction, transcript,
+   FateCaster presentation, saves, and transport to IPC.
+
+   ARCHITECTURE CONTRACT:
+   - PWA owns player input and presentation.
+   - FateCaster generates or accepts exactly one natural d20.
+   - IPC owns final roll arithmetic, consequences, and world truth.
+   - One player action advances one campaign turn.
+   - A roll_result resolves that same action; it is not a new turn.
+
+   FRONTEND:
+   GitHub Pages
+
+   DEPENDS ON:
+   save.js (window.BF_DB helpers)
+   gm.schema.js (window.BF_GM)
+
+   ENDPOINT:
+   window.BF_GM_ENDPOINT = ".../api/turn"
+
+   RUNTIME REPAIR 003:
+   Installs the Campaign 001 runtime boundary and sends the full
+   player-visible campaign state to IPC without exposing hidden truth.
+   ============================================================ */
 
 (function () {
   if (window.__BF_APP_RUNNING__) return;
   window.__BF_APP_RUNNING__ = true;
 
   // ASH PATCH A: Running proof stamp
-  const TATTOO = `IPC ENGINE • BUILD 2026-02-26 • V1.8 • RUNNING PROOF ${new Date().toISOString()}`;
+  const TATTOO = `IPC ENGINE • BUILD 2026-08-23 • RUNTIME REPAIR 003 • RUNNING PROOF ${new Date().toISOString()}`;
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -23,7 +45,6 @@
   if (!$app) return;
 
   const GM_ENDPOINT = String(window.BF_GM_ENDPOINT || "");
-  const BF_SCENES = window.BF_SCENES || null;
   const dbApi = window.BF_DB || null;
 
   if (!dbApi) {
@@ -104,30 +125,8 @@
       const s = defaultSaveSlot();
       s.title = "Save 1";
       s.updatedAt = nowISO();
-
-      s.character = s.character || {
-        name: "Eli Brogan", background: "Park Ranger",
-        grit: 1, instinct: 2, will: 1, presence: 0, discipline: 0,
-        hp: 13, maxHp: 13, wounds: 0, stress: 0, exposed: false, ammo: 6,
-      };
-
-      s.campaign = s.campaign || {};
-      s.campaign.campaignId = s.campaign.campaignId || "oregon_brogan_v1";
-      s.campaign.turn = Number(s.campaign.turn || 0);
-      s.campaign.transcript = Array.isArray(s.campaign.transcript) ? s.campaign.transcript : [];
-
-      if (BF_SCENES && typeof BF_SCENES.ensureCampaign === "function") {
-        try { BF_SCENES.ensureCampaign(s); } catch {}
-      }
-
-      // ASH PATCH C1: IPC SETTINGS (NEW SAVE)
-      s.settings = (s.settings && typeof s.settings === "object") ? s.settings : {};
-      if (typeof s.settings.letBonesDecide !== "boolean") s.settings.letBonesDecide = false;
-
       s.sessionLog = Array.isArray(s.sessionLog) ? s.sessionLog : [];
-      s.sessionLog.unshift({ at: nowISO(), type: "SCENES", text: `BF_SCENES ${BF_SCENES ? "LOADED" : "MISSING"} (new save)`, data: null });
-      s.sessionLog.unshift({ at: nowISO(), type: "BOOT", text: `Fresh DB created (${TATTOO})`, data: null });
-
+      s.sessionLog.unshift({ at: nowISO(), type: "BOOT", text: `Fresh Campaign 001 save created (${TATTOO})`, data: null });
       db.saves.push(s);
       writeDB(db);
       setActiveSaveId(s.id);
@@ -138,24 +137,20 @@
     const hasActive = db.saves.some((x) => x && x.id === activeId);
     if (!hasActive) setActiveSaveId(db.saves[0].id);
 
-    // ASH PATCH C2: IPC MIGRATION - heal older saves (safe, no drama)
+    // ========================================================
+    // 🪨 CAVECODE — LOCKED BLOCK
+    // SAVE MIGRATION
+    // patchSave() in save.js owns campaign-shape repair and moves
+    // retired oregon_brogan_v1 saves onto bf_campaign_001.
+    // ========================================================
     let changed = false;
-    for (const s of db.saves) {
-      if (!s || typeof s !== "object") continue;
-
-      s.character = (s.character && typeof s.character === "object") ? s.character : {};
-      s.campaign  = (s.campaign  && typeof s.campaign  === "object") ? s.campaign  : {};
-      s.worldFlags = (s.worldFlags && typeof s.worldFlags === "object") ? s.worldFlags : {};
-      s.campaign.transcript = Array.isArray(s.campaign.transcript) ? s.campaign.transcript : [];
-      s.campaign.turn = Number(s.campaign.turn || 0);
-      s.campaign.campaignId = String(s.campaign.campaignId || "oregon_brogan_v1");
-
-      s.settings = (s.settings && typeof s.settings === "object") ? s.settings : {};
-      if (typeof s.settings.letBonesDecide !== "boolean") { s.settings.letBonesDecide = false; changed = true; }
+    for (let i = 0; i < db.saves.length; i += 1) {
+      const before = JSON.stringify(db.saves[i] || {});
+      db.saves[i] = window.BF_DB.patchSave(db.saves[i]);
+      if (JSON.stringify(db.saves[i]) !== before) changed = true;
     }
     if (changed) writeDB(db);
 
-    writeDB(db);
     return getActiveSave();
   }
 
@@ -272,7 +267,7 @@
 
         <div style="margin-top:12px; padding:16px; background:#0b0b0f; border:1px solid rgba(255,255,255,.05); border-radius:8px; text-align:center;">
           <div id="rollSpinnerNumber" style="font-size:36px; font-weight:900; font-family:monospace; color:#61ff9a; min-height:42px;">--</div>
-          <div id="rollSpinnerMessage" class="bf-dim" style="min-height:20px; margin-top:4px;">Awaiting the bones...</div>
+          <div id="rollSpinnerMessage" class="bf-dim" style="min-height:20px; margin-top:4px;">Awaiting your Fate…</div>
           <button class="bf-btn" id="btnAskDark" ${disAttr()} style="margin-top:12px; background:#0b2b12; border-color:#61ff9a; color:#61ff9a; width:100%; max-width:200px; font-weight:bold;">Ask the Dark</button>
         </div>
 
@@ -450,35 +445,69 @@
     });
   }
 
+  // ============================================================
+  // 🎮 CAVECODE — GAME LOGIC BLOCK
+  // FATECASTER RESULT HANDOFF
+  //
+  // The PWA may calculate a preview so the local log is immediate,
+  // but the preview is NOT authoritative. IPC receives the natural
+  // d20 plus the roll request context and recalculates everything
+  // from the saved character.
+  //
+  // This block must submit only ONE natural result for a pending
+  // roll. Do not turn animation numbers into game results.
+  // ============================================================
   async function processRoll(nat) {
     const live = safeGetActiveSave();
-    const stat = computeStat(live, ui.pendingRoll.stat);
-    const mod = Number(ui.pendingRoll.mod || 0);
+    const pending = ui.pendingRoll;
+    if (!pending) return;
+
+    const statName = String(pending.stat || "will").toLowerCase();
+    const statValue = computeStat(live, statName);
+    const mod = Number(pending.mod || 0);
     const wounds = Number((live.character && live.character.wounds) || 0);
     const stress = Number((live.character && live.character.stress) || 0);
     const penalty = wounds + Math.floor(stress / 3);
 
-    const total = nat + stat + mod - penalty;
+    const total = nat + statValue + mod - penalty;
+
     const rollPacket = {
-      nat, total, dice: ui.pendingRoll.dice || "d20",
-      kind: ui.pendingRoll.kind || "Check",
-      tn: Number(ui.pendingRoll.tn || 12),
-      statName: ui.pendingRoll.stat || "none",
-      mod, stat, penalty,
+      natural: nat,
+      dice: pending.dice || "d20",
+      kind: pending.kind || "Check",
+      tn: Number(pending.tn || 12),
+      stat: statName,
+      mod,
+      actionText: String(pending.actionText || ""),
+      clientPreview: {
+        statValue,
+        penalty,
+        total,
+      },
     };
 
-      ui.pendingRoll = null;
-      pushLocalLog(null, "ROLL", `${rollPacket.kind} — ${rollPacket.dice} ${nat} → ${total} vs TN ${rollPacket.tn}`, rollPacket);
-    
-      // --- STORY TERMINAL FIX ---
-      live.campaign.transcript.push({ who: "player", text: `[ I rolled a ${nat} on the d20 ]` });
-      commitActiveSave(live);
-      // --------------------------
+    ui.pendingRoll = null;
 
-      if (typeof render === "function") render();
+    pushLocalLog(
+      null,
+      "ROLL",
+      `${rollPacket.kind} — ${rollPacket.dice} ${nat} → ${total} vs TN ${rollPacket.tn}`,
+      rollPacket
+    );
 
-     
-    await gmTurn({ type: "roll_result", text: "Roll result attached.", roll: rollPacket });
+    live.campaign.transcript.push({
+      who: "player",
+      text: `[ I rolled a ${nat} on the d20 ]`,
+    });
+    commitActiveSave(live);
+
+    if (typeof render === "function") render();
+
+    await gmTurn({
+      type: "roll_result",
+      text: "Roll result attached.",
+      roll: rollPacket,
+    });
   }
 
   // ASH PATCH F: Add the Auto-Invocation function (Tier 3)
@@ -574,9 +603,16 @@
       save.campaign.transcript = Array.isArray(save.campaign.transcript) ? save.campaign.transcript : [];
       save.campaign.turn = Number(save.campaign.turn || 0);
 
+      // ========================================================
+      // 🪨 CAVECODE — LOCKED BLOCK
+      // TURN AUTHORITY
+      //
+      // The PWA records what the player said, but it does NOT
+      // advance campaign.turn. IPC advances the turn exactly once
+      // when it receives the player_action.
+      // ========================================================
       if (event.type === "player_action") {
         save.campaign.transcript.push({ who: "player", text: event.text });
-        save.campaign.turn += 1;
         commitActiveSave(save);
       }
 
@@ -589,7 +625,7 @@
 
       const payload = {
         schema: window.BF_GM?.schema || null,
-        save: { character: save.character, campaign: { campaignId: save.campaign.campaignId, turn: save.campaign.turn, transcript: save.campaign.transcript.slice(-24) }, worldFlags: save.worldFlags },
+        save: { character: save.character, campaign: { ...save.campaign, transcript: save.campaign.transcript.slice(-24) }, worldFlags: save.worldFlags },
         event,
       };
 
@@ -610,8 +646,22 @@
       commitActiveSave(save);
 
       if (data.roll?.needRoll) {
-        ui.pendingRoll = { dice: data.roll.dice || "d20", kind: data.roll.kind || "Check", tn: Number(data.roll.tn || 12), stat: data.roll.stat || "none", mod: Number(data.roll.mod || 0), prompt: data.roll.prompt || "Make a roll." };
-      } else { ui.pendingRoll = null; }
+        // Keep the original action attached to the pending roll so
+        // IPC resolves the consequence against what the character
+        // actually attempted, not transport text such as
+        // "Roll result attached."
+        ui.pendingRoll = {
+          dice: data.roll.dice || "d20",
+          kind: data.roll.kind || "Check",
+          tn: Number(data.roll.tn || 12),
+          stat: data.roll.stat || "none",
+          mod: Number(data.roll.mod || 0),
+          prompt: data.roll.prompt || "Make a roll.",
+          actionText: event.type === "player_action" ? String(event.text || "") : "",
+        };
+      } else {
+        ui.pendingRoll = null;
+      }
 
     } finally {
       ui.inFlight = false;
